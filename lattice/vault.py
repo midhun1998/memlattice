@@ -63,11 +63,20 @@ def parse_note(path: Path) -> Note:
     )
 
 
+# Directories never scanned for notes (machine state, not knowledge).
+_SKIP_DIRS = {".lattice", ".git", ".obsidian", "node_modules"}
+
+
 def load_vault(root: Path) -> list[Note]:
+    """Load every markdown note in any non-hidden subdirectory.
+
+    Auto-discovers category dirs (components/, flows/, api/, queries/,
+    ideas/, ...) so adding a new category needs no code change. Files and
+    dirs starting with `_` or `.` are skipped, as are _SKIP_DIRS.
+    """
     notes = []
-    for sub in ("components", "flows", "api"):
-        d = root / sub
-        if not d.is_dir():
+    for d in sorted(p for p in root.iterdir() if p.is_dir()):
+        if d.name in _SKIP_DIRS or d.name.startswith((".", "_")):
             continue
         for p in sorted(d.glob("*.md")):
             if p.name.startswith("_"):
