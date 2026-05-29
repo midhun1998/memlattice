@@ -172,6 +172,11 @@ def lint() -> None:
                 continue
             if not stripped:
                 continue
+            # skip wrapped continuation lines (start lowercase / mid-sentence
+            # punctuation) — a soft-wrapped sentence carries its citation on
+            # another line; flagging the fragment is a false positive.
+            if stripped[0].islower() or stripped[0] in "([":
+                continue
             if PROPER_NOUN_LINE.search(line) and not CITATION_RE.search(line):
                 # heuristic: only flag lines that look like factual claims
                 if any(w in line.lower() for w in (" runs ", " uses ", " calls ", " talks to ", " stores ", " writes to ", " reads from ", " endpoint ")):
