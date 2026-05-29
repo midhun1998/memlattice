@@ -1,16 +1,37 @@
 [project]
-name = "lattice-memory"
+name = "memlattice"
 version = "0.0.1"
 description = "Your AI agent's long-term memory, in plain markdown. Verified by construction."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Midhun R Nair" }]
+keywords = ["ai", "agent", "memory", "claude", "cursor", "rag", "markdown", "obsidian"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Documentation",
+  "Topic :: Text Processing :: Markup :: Markdown",
+]
 dependencies = [
   "click>=8.1",
   "pyyaml>=6.0",
   "rank-bm25>=0.2.2",
+  "tomli>=2.0; python_version < '3.11'",
 ]
+
+[project.urls]
+Homepage = "https://github.com/midhun1998/lattice"
+Issues = "https://github.com/midhun1998/lattice/issues"
+Documentation = "https://github.com/midhun1998/lattice#readme"
+
+[project.optional-dependencies]
+agentic = ["anthropic>=0.40"]
 
 [project.scripts]
 lattice = "lattice.cli:main"

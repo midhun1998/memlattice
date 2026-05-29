@@ -10,13 +10,12 @@ import click
 
 from . import __version__
 from . import templates as T
+from .config import load_config, run_hook
 from .vault import (
     CITATION_RE,
     HEADING_RE,
-    WIKILINK_RE,
     find_vault,
     load_vault,
-    parse_note,
 )
 
 PROPER_NOUN_LINE = re.compile(r"\b([A-Z][A-Za-z0-9+]{2,}(?:[- ][A-Z][A-Za-z0-9+]+)*)\b")
@@ -45,21 +44,40 @@ def main() -> None:
 @main.command()
 @click.argument("path", type=click.Path(file_okay=False, path_type=Path), default=".")
 def init(path: Path) -> None:
-    """Scaffold a new vault."""
+    """Scaffold a new vault. Idempotent — won't clobber existing files."""
     path.mkdir(parents=True, exist_ok=True)
-    for sub in ("components", "flows", "api", ".lattice/cache", ".lattice/history/full"):
+    for sub in ("components", "flows", "api", ".lattice/cache/queries", ".lattice/history/full"):
         (path / sub).mkdir(parents=True, exist_ok=True)
     today = _today()
-    (path / "_protocol.md").write_text(T.PROTOCOL_MD.format(today=today))
-    (path / "_template.md").write_text(T.TEMPLATE_MD.format(today=today))
-    (path / "README.md").write_text(T.README_MD.format(name=path.name, path=path.resolve()))
-    (path / ".lattice/config.toml").write_text(T.CONFIG_TOML)
+    files = {
+        "_protocol.md": T.PROTOCOL_MD.format(today=today),
+        "_template.md": T.TEMPLATE_MD.format(today=today),
+        "README.md": T.README_MD.format(name=path.name, path=path.resolve()),
+        ".lattice/config.toml": T.CONFIG_TOML,
+    }
+    created, kept = [], []
+    for rel, content in files.items():
+        target = path / rel
+        if target.exists():
+            kept.append(rel)
+        else:
+            target.write_text(content)
+            created.append(rel)
     gi = path / ".gitignore"
-    if not gi.exists():
-        gi.write_text(".lattice/cache/\n")
+    gi_line = ".lattice/cache/\n"
+    if gi.exists():
+        if gi_line.strip() not in gi.read_text():
+            gi.write_text(gi.read_text().rstrip() + "\n" + gi_line)
+    else:
+        gi.write_text(gi_line)
     _ok(f"vault initialised at {path}")
-    click.echo("Add to your CLAUDE.md / AGENTS.md / .cursorrules:")
+    if created:
+        click.echo("  created: " + ", ".join(created))
+    if kept:
+        click.echo("  kept (unchanged): " + ", ".join(kept))
+    click.echo("\nAdd to your CLAUDE.md / AGENTS.md / .cursorrules:")
     click.echo(f'  Long-term memory at {path.resolve()}. Read _protocol.md before editing.')
+    run_hook(path.resolve(), "init")
 
 
 @main.command()
@@ -80,6 +98,7 @@ def new(kind: str, slug: str) -> None:
     ).replace("<Flow name>", slug)
     target.write_text(body)
     _ok(f"created {target.relative_to(root)}")
+    run_hook(root, "new", args=f"{kind}:{slug}")
 
 
 @main.command()
@@ -110,6 +129,8 @@ def link(fix: bool) -> None:
                 _rewrite_body(n.path, body)
     msg = f"{changed} file(s) {'updated' if fix else 'would be updated (run with --fix)'}"
     _ok(msg) if fix or changed == 0 else click.echo(msg)
+    if fix:
+        run_hook(root, "link", args=str(changed))
 
 
 @main.command()
@@ -137,9 +158,13 @@ def lint() -> None:
         # citation check (skip Open questions section)
         body_for_check = re.split(r"##\s*(?:7\.\s*)?Open questions", n.body)[0]
         for line in body_for_check.splitlines():
-            if line.lstrip().startswith(("|", "#", "-", "*", ">")):
+            stripped = line.lstrip()
+            if stripped.startswith(("|", "#", "-", "*", ">", "_", "`")):
                 continue
-            if not line.strip():
+            # skip numbered list items (procedural steps, not standalone claims)
+            if re.match(r"\d+\.\s", stripped):
+                continue
+            if not stripped:
                 continue
             if PROPER_NOUN_LINE.search(line) and not CITATION_RE.search(line):
                 # heuristic: only flag lines that look like factual claims
@@ -152,6 +177,7 @@ def lint() -> None:
                 click.echo(f"  ✗ {p}")
         else:
             click.echo(f"{n.path.relative_to(root)}  ✓ ok")
+    run_hook(root, "lint", args=str(errors))
     if errors:
         _err(f"\n{errors} file(s) with problems")
         sys.exit(1)
@@ -180,57 +206,107 @@ def stale(days: int) -> None:
             found += 1
     if not found:
         _ok(f"nothing older than {days}d")
+    run_hook(root, "stale", args=str(found))
 
 
-@main.command()
-@click.argument("query")
-@click.option("--budget", default=4000, type=int, help="Max output tokens.")
-def context(query: str, budget: int) -> None:
-    """Return the smallest relevant subgraph for a query."""
-    root = find_vault(Path.cwd()) or _abort_no_vault()
+def _build_context(root: Path, query: str, budget: int) -> tuple[str, int, int]:
+    """Return (manifest_text, tokens_used, files_count)."""
     notes = load_vault(root)
     try:
         from rank_bm25 import BM25Okapi
     except ImportError:
-        _err("install `rank-bm25` for context retrieval")
-        sys.exit(2)
+        raise click.ClickException("install `rank-bm25` for context retrieval")
     docs = []
     for n in notes:
         text = n.slug + " " + " ".join(t for _, t in n.headings) + " " + n.body[:2000]
         docs.append(_tokenize(text))
+    if not docs:
+        return f"# lattice context for: {query!r}\n# (vault empty)\n", 0, 0
     bm25 = BM25Okapi(docs)
     scores = bm25.get_scores(_tokenize(query))
     ranked = sorted(zip(scores, notes), key=lambda x: -x[0])
-    chosen: list[tuple[float, str, int]] = []  # (score, snippet, tokens)
+    out: list[str] = [f"# lattice context for: {query!r}", ""]
     used = 0
-    seen_slugs: set[str] = set()
+    files = 0
+    seen: set[str] = set()
     for sc, n in ranked:
         if sc <= 0:
             break
-        if n.slug in seen_slugs:
+        if n.slug in seen:
             continue
-        seen_slugs.add(n.slug)
+        seen.add(n.slug)
         snippet = _best_section(n, query)
         toks = len(snippet) // 4
-        if used + toks > budget and chosen:
+        if used + toks > budget and files:
             break
-        chosen.append((sc, f"{n.path.relative_to(root)}", toks))
         used += toks
-        click.echo(f"--- {n.path.relative_to(root)}  (~{toks} tok, score={sc:.2f}) ---")
-        click.echo(snippet.strip())
-        # one-hop expansion
+        files += 1
+        out.append(f"--- {n.path.relative_to(root)}  (~{toks} tok, score={sc:.2f}) ---")
+        out.append(snippet.strip())
+        out.append("")
         for slug in n.links:
             target = next((m for m in notes if m.slug == slug), None)
-            if target and target.slug not in seen_slugs and used < budget:
-                seen_slugs.add(target.slug)
+            if target and target.slug not in seen and used < budget:
+                seen.add(target.slug)
                 snip = _best_section(target, query)
                 stoks = len(snip) // 4
                 if used + stoks > budget:
                     continue
                 used += stoks
-                click.echo(f"--- {target.path.relative_to(root)}  (~{stoks} tok, link-hop) ---")
-                click.echo(snip.strip())
-    click.echo(f"\n# total: ~{used} / {budget} tokens, {len(chosen)} files")
+                files += 1
+                out.append(f"--- {target.path.relative_to(root)}  (~{stoks} tok, link-hop) ---")
+                out.append(snip.strip())
+                out.append("")
+    out.append(f"# total: ~{used} / {budget} tokens, {files} files")
+    return "\n".join(out), used, files
+
+
+@main.command()
+@click.argument("query")
+@click.option("--budget", default=4000, type=int, help="Max output tokens.")
+@click.option("--out", type=click.Path(dir_okay=False, path_type=Path), help="Write manifest to file (also passed to post-context hook).")
+def context(query: str, budget: int, out: Path | None) -> None:
+    """Return the smallest relevant subgraph for a query."""
+    root = find_vault(Path.cwd()) or _abort_no_vault()
+    text, used, files = _build_context(root, query, budget)
+    click.echo(text)
+    if out:
+        out.write_text(text)
+    run_hook(root, "context", args=query, output_file=out)
+
+
+@main.command()
+@click.option("--build", is_flag=True, help="Render all queries in [cache.queries] to .lattice/cache/queries/.")
+@click.option("--budget", default=4000, type=int)
+def cache(build: bool, budget: int) -> None:
+    """Offline pre-rendered context manifests. Read these with no Python required."""
+    root = find_vault(Path.cwd()) or _abort_no_vault()
+    cache_dir = root / ".lattice" / "cache" / "queries"
+    if not build:
+        # list existing
+        if not cache_dir.exists():
+            click.echo("(no cache yet — run `lattice cache --build`)")
+            return
+        for f in sorted(cache_dir.glob("*.md")):
+            size = f.stat().st_size
+            click.echo(f"{f.relative_to(root)}   {size}B")
+        return
+    cfg = load_config(root)
+    queries: dict = (cfg.get("cache") or {}).get("queries") or {}
+    if not queries:
+        _err("no [cache.queries] entries in config.toml")
+        sys.exit(1)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    index_lines = ["# lattice offline cache", "", "| slug | query | tokens | files |", "|---|---|---|---|"]
+    for slug, query in queries.items():
+        text, used, files = _build_context(root, query, budget)
+        path = cache_dir / f"{slug}.md"
+        path.write_text(text)
+        index_lines.append(f"| [{slug}]({path.relative_to(root)}) | {query} | {used} | {files} |")
+        click.echo(f"  {slug:30s} {used:5d}t  {files}f  -> {path.relative_to(root)}")
+    (cache_dir / "INDEX.md").write_text("\n".join(index_lines) + "\n")
+    _ok(f"\nbuilt {len(queries)} cached manifest(s); index at {cache_dir.relative_to(root)}/INDEX.md")
+    run_hook(root, "cache", args=f"build:{len(queries)}")
 
 
 @main.command()
@@ -260,7 +336,7 @@ def digest(history_file: Path, keep_recent: int, write: bool) -> None:
         full_path = archive_dir / f"{slug}.md"
         full_path.write_text(f"# {header}\n\n{body}")
         out_lines.append(f"- **{header}** -> [full]({full_path}) — _stub_:")
-        out_lines.append(_stub(body))
+        out_lines.append(_stub(body, vault=root))
         out_lines.append("")
     out_lines.append("\n---\n")
     for header, body in keep:
@@ -275,6 +351,8 @@ def digest(history_file: Path, keep_recent: int, write: bool) -> None:
         backup.write_text(text)
         history_file.write_text(digested)
         _ok(f"wrote {history_file}; backup at {backup}")
+        if root:
+            run_hook(root, "digest", args=str(history_file), output_file=history_file)
     else:
         click.echo("\n--- preview (first 60 lines) ---")
         click.echo("\n".join(digested.splitlines()[:60]))
@@ -347,8 +425,16 @@ def _split_sessions(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def _stub(body: str) -> str:
-    """Compress a session body to 5 bullets. Cheap heuristic — agent-driven version comes in v0.2."""
+def _stub(body: str, vault: Path | None = None) -> str:
+    """Compress a session body to 5 bullets.
+
+    Tries Claude API first (set ANTHROPIC_API_KEY); falls back to a cheap
+    heuristic when the API is unavailable.
+    """
+    from .agentic import agentic_stub
+    out = agentic_stub(body, vault=vault)
+    if out:
+        return out
     lines = [l.strip() for l in body.splitlines() if l.strip()]
     bullets = [l for l in lines if l.startswith(("-", "*"))][:5]
     if len(bullets) < 5:

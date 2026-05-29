@@ -92,4 +92,23 @@ context_default = 4000
 require_citations = true
 require_open_questions = true
 require_referenced_by = true
+
+# Run scripts after a lattice command finishes successfully.
+# Available events: post-init, post-new, post-link, post-lint, post-stale,
+#                   post-context, post-digest, post-cache.
+# Each entry is a shell command. Working dir = vault root.
+# Useful env vars passed in:
+#   LATTICE_VAULT, LATTICE_EVENT, LATTICE_ARGS,
+#   LATTICE_OUTPUT_FILE (post-context, post-cache only)
+[hooks]
+# post-context = "cp $LATTICE_OUTPUT_FILE .lattice/cache/last-context.md"
+# post-link    = "git add -A && git -c commit.gpgsign=false commit -m 'lattice: refresh backlinks' || true"
+
+# Offline cache: pre-render context manifests for these queries on
+# `lattice cache --build`. Files land in .lattice/cache/queries/<slug>.md
+# so the agent can read them with no network / no Python / no live BM25.
+[cache.queries]
+# checkout      = "how does the spark indexing job work end to end"
+# agentforce-flow   = "agentforce planner tool calling llm gateway"
+# leak-checks       = "what counts as sensitive data"
 """

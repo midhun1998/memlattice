@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/lattice-logo.png" width="180" alt="lattice logo"/></p>
+
 # lattice
 
 > **Your AI agent's long-term memory, in plain markdown. Verified by construction.**
@@ -51,7 +53,7 @@ not a service. Stays out of your way until your facts drift, then yells.
 ## Install (planned)
 
 ```bash
-pipx install lattice-memory
+pipx install memlattice
 # or
 brew install lattice
 ```
