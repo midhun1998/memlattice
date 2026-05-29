@@ -61,17 +61,17 @@ PROMPT = textwrap.dedent("""\
 """)
 
 
-def agentic_stub(body: str, vault: Path | None = None) -> str | None:
+def agentic_stub(body: str, vault: Path | None = None, use_cache: bool = True) -> str | None:
     """Return a 5-line stub via Claude API, or None if unavailable.
 
-    Caches by content hash. Reads ANTHROPIC_API_KEY from env.
+    Caches by content hash unless use_cache=False. Reads ANTHROPIC_API_KEY.
     """
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         return None
-    cache = _load_cache(vault)
+    cache = _load_cache(vault) if use_cache else {}
     h = _hash(body)
-    if h in cache:
+    if use_cache and h in cache:
         return cache[h]
     try:
         from anthropic import Anthropic
@@ -93,6 +93,7 @@ def agentic_stub(body: str, vault: Path | None = None) -> str | None:
     if len(lines) < 5:
         return None
     out = "\n".join(f"  {l}" for l in lines[:5])
-    cache[h] = out
-    _save_cache(vault, cache)
+    if use_cache:
+        cache[h] = out
+        _save_cache(vault, cache)
     return out

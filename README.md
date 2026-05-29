@@ -72,19 +72,19 @@ $ lattice new flow checkout
 created  flows/checkout.md (from _template.md)
 
 $ lattice lint
-flows/checkout.md: ✗ 3 named services without citations: PaymentGateway, Milvus, ModelGateway
+flows/checkout.md: ✗ 3 named services without citations: PaymentGateway, Redis, OrderQueue
 flows/checkout.md: ✗ "Open questions" section missing
 components/job-runner.md:    ✓ ok
 1 file with errors. exit 1.
 
 $ lattice stale --days 90
-components/payment-gateway.md          last_verified=2025-12-04  age=176d
-api/connect-api-payloads.md last_verified=2026-02-11  age=107d
+components/auth-service.md   last_verified=2025-12-04  age=176d
+api/billing-payloads.md      last_verified=2026-02-11  age=107d
 
-$ lattice context "how does the spark job submit to payment-gateway?"
-flows/checkout.md (Phase C, lines 88-114)
-components/payment-gateway.md      (sections 1-3)
-api/connect-api-payloads.md (lines matching "spark")
+$ lattice context "how does checkout settle a payment?"
+flows/checkout.md           (Phase C, lines 88-114)
+components/payment-gateway.md (sections 1-3)
+api/billing-payloads.md     (lines matching "settle")
 ~ 2,140 tokens. (vault total: 47,300)
 ```
 

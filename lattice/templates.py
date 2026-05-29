@@ -108,7 +108,7 @@ require_referenced_by = true
 # `lattice cache --build`. Files land in .lattice/cache/queries/<slug>.md
 # so the agent can read them with no network / no Python / no live BM25.
 [cache.queries]
-# checkout      = "how does the spark indexing job work end to end"
-# agentforce-flow   = "agentforce planner tool calling llm gateway"
-# leak-checks       = "what counts as sensitive data"
+# checkout-flow    = "how does checkout settle a payment end to end"
+# auth-overview    = "auth service token issuance refresh"
+# billing-payloads = "billing api request response examples"
 """

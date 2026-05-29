@@ -155,8 +155,14 @@ def lint() -> None:
             problems.append(f"file too large ({toks} tokens > 12000)")
         elif toks > 6000:
             problems.append(f"file getting large ({toks} tokens > 6000) — consider splitting")
-        # citation check (skip Open questions section)
-        body_for_check = re.split(r"##\s*(?:7\.\s*)?Open questions", n.body)[0]
+        # citation check: skip ONLY the Open questions section itself, not
+        # everything after it (e.g. Referenced by + any later additions).
+        body_for_check = re.sub(
+            r"##\s*(?:\d+\.\s*)?Open questions.*?(?=^##\s|\Z)",
+            "",
+            n.body,
+            flags=re.DOTALL | re.MULTILINE,
+        )
         for line in body_for_check.splitlines():
             stripped = line.lstrip()
             if stripped.startswith(("|", "#", "-", "*", ">", "_", "`")):
@@ -313,7 +319,8 @@ def cache(build: bool, budget: int) -> None:
 @click.argument("history_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--keep-recent", default=3, type=int)
 @click.option("--write", is_flag=True, help="Overwrite the input file with the digest.")
-def digest(history_file: Path, keep_recent: int, write: bool) -> None:
+@click.option("--no-cache", is_flag=True, help="Bypass agentic stub cache; force re-call.")
+def digest(history_file: Path, keep_recent: int, write: bool, no_cache: bool) -> None:
     """Compress a .CLAUDE.HISTORY file. Sessions older than --keep-recent become 5-line stubs."""
     root = find_vault(Path.cwd())
     archive_dir = (root / ".lattice/history/full") if root else (history_file.parent / ".lattice-history")
@@ -336,7 +343,7 @@ def digest(history_file: Path, keep_recent: int, write: bool) -> None:
         full_path = archive_dir / f"{slug}.md"
         full_path.write_text(f"# {header}\n\n{body}")
         out_lines.append(f"- **{header}** -> [full]({full_path}) — _stub_:")
-        out_lines.append(_stub(body, vault=root))
+        out_lines.append(_stub(body, vault=root, use_cache=not no_cache))
         out_lines.append("")
     out_lines.append("\n---\n")
     for header, body in keep:
@@ -425,14 +432,14 @@ def _split_sessions(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def _stub(body: str, vault: Path | None = None) -> str:
+def _stub(body: str, vault: Path | None = None, use_cache: bool = True) -> str:
     """Compress a session body to 5 bullets.
 
     Tries Claude API first (set ANTHROPIC_API_KEY); falls back to a cheap
     heuristic when the API is unavailable.
     """
     from .agentic import agentic_stub
-    out = agentic_stub(body, vault=vault)
+    out = agentic_stub(body, vault=vault, use_cache=use_cache)
     if out:
         return out
     lines = [l.strip() for l in body.splitlines() if l.strip()]
