@@ -145,7 +145,7 @@ def lint() -> None:
             problems.append("missing frontmatter `type`")
         if not n.last_verified:
             problems.append("missing frontmatter `last_verified`")
-        if "## 7. Open questions" not in n.body and "## Open questions" not in n.body:
+        if not re.search(r"##\s*(?:\d+\.\s*)?Open questions", n.body):
             problems.append("missing `## Open questions` section")
         if "Referenced by" not in n.body:
             problems.append("missing `## Referenced by` section (run `lattice link --fix`)")
