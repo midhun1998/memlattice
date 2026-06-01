@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **`lattice used <slug> [<slug>...] [--bad]`** — record an outcome for notes
+  you just used. Appends one local-only JSONL record to
+  `.lattice/cache/outcomes.jsonl` (gitignored, no telemetry, nothing leaves the
+  machine). Unknown slugs are rejected so no garbage is recorded.
+- **Outcome rank boost in `lattice context`.** A small, conservative,
+  recency-decayed multiplier from those outcomes is applied on top of BM25 so
+  recently/positively-used notes rank slightly higher; `--bad` penalizes.
+  Configurable under `[learn]` (`enabled`, `boost`, `penalty`,
+  `half_life_days`). On by default but capped so it can only nudge, never flip
+  strong BM25 signal; the penalty is floored above zero so a relevant note is
+  never hidden. Disable per-invocation with `lattice context --no-learn` or
+  globally with `[learn] enabled = false`. With no outcomes file, behavior is
+  identical to pure BM25. New `post-used` hook event.
+
 ## v0.1.0 (2026-06-01) — config-driven, public
 
 - **Config-driven citation schemes.** Citation prefixes now come from

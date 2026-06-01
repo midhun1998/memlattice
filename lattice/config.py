@@ -74,6 +74,37 @@ def budgets(vault: Path | None) -> dict[str, int]:
     return out
 
 
+# Defaults for the `[learn]` outcome rank boost. Deliberately CONSERVATIVE:
+# a fully-fresh positive outcome only lifts BM25 by `boost`; recency decay
+# fades old outcomes toward no effect. If outcomes.jsonl is absent/empty every
+# multiplier is 1.0 (pure BM25), so behavior matches a vault that never used
+# `lattice used`.
+DEFAULT_LEARN: dict[str, Any] = {
+    "enabled": True,
+    "boost": 0.15,
+    "penalty": 0.30,
+    "half_life_days": 30.0,
+}
+
+
+def learn_config(vault: Path | None) -> dict[str, Any]:
+    """Return the `[learn]` config. Defaults, overridden per-key by `[learn]`
+    (config wins; unspecified keys keep their default)."""
+    cfg = load_config(vault)
+    out = dict(DEFAULT_LEARN)
+    table = cfg.get("learn") or {}
+    for key in out:
+        if key not in table:
+            continue
+        val = table[key]
+        if key == "enabled":
+            if isinstance(val, bool):
+                out[key] = val
+        elif isinstance(val, (int, float)) and not isinstance(val, bool):
+            out[key] = float(val)
+    return out
+
+
 def note_types(vault: Path | None) -> dict[str, str]:
     """Return type -> directory map. Defaults ∪ user `[types]` (config wins)."""
     cfg = load_config(vault)
