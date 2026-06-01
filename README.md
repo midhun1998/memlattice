@@ -97,7 +97,8 @@ Then tell your agent, once:
 | `lattice lint` | Cited-fact checker, structure + token-budget guard |
 | `lattice link [--fix]` | Rebuild bidirectional `Referenced by` backlinks |
 | `lattice stale [--days N]` | List notes older than N days |
-| `lattice context <query> [--budget N]` | Smallest relevant subgraph for a query |
+| `lattice context <query> [--budget N] [--no-learn]` | Smallest relevant subgraph for a query (`--no-learn` = pure BM25, no outcome boost) |
+| `lattice used <slug> [<slug>...] [--bad]` | Record a local-only outcome so `context` ranks used notes slightly higher (`--bad` penalizes) |
 | `lattice cache [--build]` | Pre-render context manifests for offline use |
 | `lattice digest <history-file>` | Compress an unbounded session-history file |
 | `lattice doctor [--days N] [--strict]` | Read-only vault health summary (counts, stale, orphans, budgets, lint); exits non-zero on hard problems |
@@ -127,10 +128,21 @@ runbook = "runbooks"          # adds a new note type + directory
 
 [citations]
 extra = ["jira", "linear"]    # on top of the vendor-neutral defaults
+
+[learn]
+enabled = true                # outcome rank boost on context (set false to disable)
+boost = 0.15                  # max uplift for a fresh positive `lattice used`
+penalty = 0.30                # max downweight for a fresh `lattice used --bad`
+half_life_days = 30           # how fast an outcome's effect decays with age
 ```
 
 Defaults ship vendor-neutral (`file`, `doc`, `url`, `commit`, `pr`, `conv`,
 `chat`); add whatever your team actually cites.
+
+`lattice used` writes outcomes to `.lattice/cache/outcomes.jsonl` — local-only,
+intentionally gitignored, and never sent anywhere. The boost it feeds into
+`lattice context` is deliberately conservative: it can only nudge ranking, never
+override strong BM25 relevance, and a penalized note is never dropped entirely.
 
 ## Documentation
 

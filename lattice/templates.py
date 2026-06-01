@@ -94,6 +94,18 @@ require_citations = true
 require_open_questions = true
 require_referenced_by = true
 
+# Outcome feedback loop. `lattice used <slug> [<slug>...] [--bad]` records
+# local-only outcomes to .lattice/cache/outcomes.jsonl (gitignored, never sent
+# anywhere). `lattice context` then applies a small, recency-decayed multiplier
+# so recently/positively-used notes rank slightly higher (--bad penalizes).
+# On by default but deliberately conservative — it can only nudge, never flip
+# strong BM25 signal. Disable per-invocation with `context --no-learn`.
+[learn]
+enabled = true
+boost = 0.15           # max positive uplift: a fresh good outcome -> score * (1 + boost)
+penalty = 0.30         # max downweight for a fresh --bad outcome (floored above zero)
+half_life_days = 30    # outcome weight = 0.5 ** (age_days / half_life_days)
+
 # Note types -> their directory. The three below are the built-in defaults;
 # uncomment/extend to add your own (the dir is created on first `lattice new`).
 [types]
@@ -108,7 +120,8 @@ require_referenced_by = true
 
 # Run scripts after a lattice command finishes successfully.
 # Available events: post-init, post-new, post-link, post-lint, post-stale,
-#                   post-context, post-digest, post-cache, post-doctor.
+#                   post-context, post-digest, post-cache, post-doctor,
+#                   post-used.
 # Each entry is a shell command. Working dir = vault root.
 # Useful env vars passed in:
 #   LATTICE_VAULT, LATTICE_EVENT, LATTICE_ARGS,

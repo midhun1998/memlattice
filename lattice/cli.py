@@ -10,7 +10,8 @@ import click
 
 from . import __version__
 from . import templates as T
-from .config import budgets, citation_regex, load_config, note_types, run_hook
+from . import outcomes as _outcomes
+from .config import budgets, citation_regex, learn_config, load_config, note_types, run_hook
 from .vault import (
     HEADING_RE,
     find_vault,
@@ -275,8 +276,15 @@ def doctor(days: int, strict: bool) -> None:
     run_hook(root, "doctor", args="ok")
 
 
-def _build_context(root: Path, query: str, budget: int) -> tuple[str, int, int]:
-    """Return (manifest_text, tokens_used, files_count)."""
+def _build_context(root: Path, query: str, budget: int, learn: bool = True) -> tuple[str, int, int]:
+    """Return (manifest_text, tokens_used, files_count).
+
+    When `learn` and `[learn].enabled`, a small, conservative, recency-decayed
+    multiplier from `.lattice/cache/outcomes.jsonl` is applied to each note's
+    BM25 score BEFORE ranking. It only scales notes that already matched
+    (score > 0), so it never resurrects a zero-BM25 note — the relevance gate
+    is preserved.
+    """
     notes = load_vault(root)
     try:
         from rank_bm25 import BM25Okapi
@@ -290,6 +298,10 @@ def _build_context(root: Path, query: str, budget: int) -> tuple[str, int, int]:
         return f"# lattice context for: {query!r}\n# (vault empty)\n", 0, 0
     bm25 = BM25Okapi(docs)
     scores = bm25.get_scores(_tokenize(query))
+    lcfg = learn_config(root)
+    if learn and lcfg.get("enabled", True):
+        mult = _outcomes.slug_multipliers(root, lcfg)
+        scores = [s * mult.get(n.slug, 1.0) for s, n in zip(scores, notes)]
     ranked = sorted(zip(scores, notes), key=lambda x: -x[0])
     out: list[str] = [f"# lattice context for: {query!r}", ""]
     used = 0
@@ -331,14 +343,38 @@ def _build_context(root: Path, query: str, budget: int) -> tuple[str, int, int]:
 @click.argument("query")
 @click.option("--budget", default=4000, type=int, help="Max output tokens.")
 @click.option("--out", type=click.Path(dir_okay=False, path_type=Path), help="Write manifest to file (also passed to post-context hook).")
-def context(query: str, budget: int, out: Path | None) -> None:
+@click.option("--no-learn", is_flag=True, help="Disable the outcome/recency rank boost (use pure BM25).")
+def context(query: str, budget: int, out: Path | None, no_learn: bool) -> None:
     """Return the smallest relevant subgraph for a query."""
     root = find_vault(Path.cwd()) or _abort_no_vault()
-    text, used, files = _build_context(root, query, budget)
+    text, used, files = _build_context(root, query, budget, learn=not no_learn)
     click.echo(text)
     if out:
         out.write_text(text)
     run_hook(root, "context", args=query, output_file=out)
+
+
+@main.command()
+@click.argument("slugs", nargs=-1, required=True)
+@click.option("--bad", is_flag=True, help="Mark the listed notes as a bad/negative outcome (penalty) instead of positive.")
+def used(slugs: tuple[str, ...], bad: bool) -> None:
+    """Record an outcome for notes you just used (local only, no telemetry).
+
+    Appends one record to `.lattice/cache/outcomes.jsonl`. `lattice context`
+    applies a small, conservative, recency-decayed boost to recently/positively
+    used notes (penalty for `--bad`). Nothing leaves the machine.
+    """
+    root = find_vault(Path.cwd()) or _abort_no_vault()
+    known = {n.slug for n in load_vault(root)}
+    unknown = [s for s in slugs if s not in known]
+    if unknown:
+        _err(f"unknown note(s): {', '.join(unknown)}")
+        _err("nothing recorded; pass slugs that exist in the vault")
+        sys.exit(1)
+    _outcomes.record(root, list(slugs), good=not bad)
+    label = "bad" if bad else "good"
+    _ok(f"recorded {label} outcome for {len(slugs)} note(s)")
+    run_hook(root, "used", args=",".join(slugs))
 
 
 @main.command()
