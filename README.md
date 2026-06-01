@@ -100,6 +100,7 @@ Then tell your agent, once:
 | `lattice context <query> [--budget N]` | Smallest relevant subgraph for a query |
 | `lattice cache [--build]` | Pre-render context manifests for offline use |
 | `lattice digest <history-file>` | Compress an unbounded session-history file |
+| `lattice doctor [--days N] [--strict]` | Read-only vault health summary (counts, stale, orphans, budgets, lint); exits non-zero on hard problems |
 
 ## The five opinions
 

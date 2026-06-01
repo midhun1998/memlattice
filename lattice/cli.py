@@ -10,7 +10,7 @@ import click
 
 from . import __version__
 from . import templates as T
-from .config import citation_regex, load_config, note_types, run_hook
+from .config import budgets, citation_regex, load_config, note_types, run_hook
 from .vault import (
     HEADING_RE,
     find_vault,
@@ -148,61 +148,10 @@ def lint() -> None:
     root = find_vault(Path.cwd()) or _abort_no_vault()
     notes = load_vault(root)
     cite_re = citation_regex(root)
+    b = budgets(root)
     errors = 0
     for n in notes:
-        problems: list[str] = []
-        if not n.type:
-            problems.append("missing frontmatter `type`")
-        if not n.last_verified:
-            problems.append("missing frontmatter `last_verified`")
-        if not re.search(r"##\s*(?:\d+\.\s*)?Open questions", n.body):
-            problems.append("missing `## Open questions` section")
-        if "Referenced by" not in n.body:
-            problems.append("missing `## Referenced by` section (run `lattice link --fix`)")
-        # token budget
-        toks = n.token_estimate
-        if toks > 12000:
-            problems.append(f"file too large ({toks} tokens > 12000)")
-        elif toks > 6000:
-            problems.append(f"file getting large ({toks} tokens > 6000) — consider splitting")
-        # citation check: skip ONLY the Open questions section itself, not
-        # everything after it (e.g. Referenced by + any later additions).
-        body_for_check = re.sub(
-            r"##\s*(?:\d+\.\s*)?Open questions.*?(?=^##\s|\Z)",
-            "",
-            n.body,
-            flags=re.DOTALL | re.MULTILINE,
-        )
-        in_code_fence = False
-        for line in body_for_check.splitlines():
-            stripped = line.lstrip()
-            # track fenced code blocks (``` or ~~~) — everything inside is
-            # code/output, never a prose claim. The fence lines toggle state.
-            if stripped.startswith(("```", "~~~")):
-                in_code_fence = not in_code_fence
-                continue
-            if in_code_fence:
-                continue
-            if stripped.startswith(("|", "#", "-", "*", ">", "_", "`")):
-                continue
-            # skip numbered list items (procedural steps, not standalone claims)
-            if re.match(r"\d+\.\s", stripped):
-                continue
-            if not stripped:
-                continue
-            # skip caption lines that introduce a block/list (end in ':') —
-            # the code block / list below carries the evidence.
-            if stripped.rstrip().endswith(":"):
-                continue
-            # skip wrapped continuation lines (start lowercase / mid-sentence
-            # punctuation) — a soft-wrapped sentence carries its citation on
-            # another line; flagging the fragment is a false positive.
-            if stripped[0].islower() or stripped[0] in "([":
-                continue
-            if PROPER_NOUN_LINE.search(line) and not cite_re.search(line):
-                # heuristic: only flag lines that look like factual claims
-                if any(w in line.lower() for w in (" runs ", " uses ", " calls ", " talks to ", " stores ", " writes to ", " reads from ", " endpoint ")):
-                    problems.append(f"un-cited factual line: {line.strip()[:80]}")
+        problems = _lint_note(n, cite_re, b["file_warn"], b["file_max"])
         if problems:
             errors += 1
             click.echo(click.style(f"\n{n.path.relative_to(root)}", bold=True))
@@ -240,6 +189,90 @@ def stale(days: int) -> None:
     if not found:
         _ok(f"nothing older than {days}d")
     run_hook(root, "stale", args=str(found))
+
+
+@main.command()
+@click.option("--days", default=90, type=int, help="Stale threshold (same as `lattice stale`).")
+@click.option("--strict", is_flag=True, help="Treat warn-level breaches and orphans as hard problems too.")
+def doctor(days: int, strict: bool) -> None:
+    """Read-only vault health summary. Exits non-zero on hard problems.
+
+    Hard problems (always exit 1): lint errors, files over the max token
+    budget. Staleness and orphans are advisory; --strict escalates orphans
+    and warn-level token breaches to hard problems too. No network, no writes.
+    """
+    root = find_vault(Path.cwd()) or _abort_no_vault()
+    notes = load_vault(root)
+    cite_re = citation_regex(root)
+    b = budgets(root)
+    file_warn, file_max = b["file_warn"], b["file_max"]
+    today = dt.date.today()
+
+    total_tokens = sum(n.token_estimate for n in notes)
+
+    # stale: missing last_verified OR age > days (counted ONCE per note)
+    stale = 0
+    for n in notes:
+        if not n.last_verified:
+            stale += 1
+            continue
+        try:
+            d = dt.date.fromisoformat(n.last_verified)
+        except ValueError:
+            continue
+        if (today - d).days > days:
+            stale += 1
+
+    orphans = _orphans(notes)
+
+    over_max = [n for n in notes if n.token_estimate > file_max]
+    over_warn = [n for n in notes if file_warn < n.token_estimate <= file_max]
+
+    lint_problems = {n.slug: _lint_note(n, cite_re, file_warn, file_max) for n in notes}
+    lint_bad = sum(1 for p in lint_problems.values() if p)
+    lint_ok = len(notes) - lint_bad
+
+    def _orphan_paths() -> str:
+        if not orphans:
+            return ""
+        names = ", ".join(str(n.path.relative_to(root)) for n in orphans)
+        return f"   ({names})"
+
+    def _row(label: str, value: str) -> str:
+        return f"  {label:<17} {value}"
+
+    click.echo(f"lattice doctor — {root}")
+    click.echo(_row("notes:", str(len(notes))))
+    click.echo(_row("total tokens:", f"~{total_tokens}"))
+    click.echo(_row(f"stale (>{days}d):", str(stale)))
+    click.echo(_row("orphans:", f"{len(orphans)}{_orphan_paths()}"))
+    click.echo(
+        _row(
+            "over budget:",
+            f"{len(over_max)} over max ({file_max}), {len(over_warn)} over warn ({file_warn})",
+        )
+    )
+    click.echo(_row("lint:", f"{lint_ok} ok, {lint_bad} with problems"))
+
+    # hard vs. advisory problem accounting
+    hard: list[str] = []
+    if lint_bad:
+        hard.append(f"{lint_bad} lint failure(s)")
+    if over_max:
+        hard.append(f"{len(over_max)} file(s) over max")
+    if strict:
+        if over_warn:
+            hard.append(f"{len(over_warn)} file(s) over warn")
+        if orphans:
+            hard.append(f"{len(orphans)} orphan(s)")
+
+    if hard:
+        summary = "PROBLEMS: " + ", ".join(hard)
+        _err(f"\n{summary}  -> exit 1")
+        run_hook(root, "doctor", args=summary)
+        sys.exit(1)
+    _ok("\nall checks passed")
+    run_hook(root, "doctor", args="ok")
 
 
 def _build_context(root: Path, query: str, budget: int) -> tuple[str, int, int]:
@@ -413,6 +446,81 @@ def _outgoing_links(body: str) -> list[str]:
         flags=re.DOTALL | re.MULTILINE,
     )
     return list({m.group(1).strip() for m in WIKILINK_RE.finditer(trimmed)})
+
+
+def _lint_note(note, cite_re: re.Pattern[str], file_warn: int, file_max: int) -> list[str]:
+    """Return the list of lint problems for one note. Shared by `lint` and
+    `doctor` so the heuristic never diverges between them. Behavior-preserving
+    extraction of the original inline loop; budgets are now config-driven.
+    """
+    problems: list[str] = []
+    if not note.type:
+        problems.append("missing frontmatter `type`")
+    if not note.last_verified:
+        problems.append("missing frontmatter `last_verified`")
+    if not re.search(r"##\s*(?:\d+\.\s*)?Open questions", note.body):
+        problems.append("missing `## Open questions` section")
+    if "Referenced by" not in note.body:
+        problems.append("missing `## Referenced by` section (run `lattice link --fix`)")
+    # token budget
+    toks = note.token_estimate
+    if toks > file_max:
+        problems.append(f"file too large ({toks} tokens > {file_max})")
+    elif toks > file_warn:
+        problems.append(f"file getting large ({toks} tokens > {file_warn}) — consider splitting")
+    # citation check: skip ONLY the Open questions section itself, not
+    # everything after it (e.g. Referenced by + any later additions).
+    body_for_check = re.sub(
+        r"##\s*(?:\d+\.\s*)?Open questions.*?(?=^##\s|\Z)",
+        "",
+        note.body,
+        flags=re.DOTALL | re.MULTILINE,
+    )
+    in_code_fence = False
+    for line in body_for_check.splitlines():
+        stripped = line.lstrip()
+        # track fenced code blocks (``` or ~~~) — everything inside is
+        # code/output, never a prose claim. The fence lines toggle state.
+        if stripped.startswith(("```", "~~~")):
+            in_code_fence = not in_code_fence
+            continue
+        if in_code_fence:
+            continue
+        if stripped.startswith(("|", "#", "-", "*", ">", "_", "`")):
+            continue
+        # skip numbered list items (procedural steps, not standalone claims)
+        if re.match(r"\d+\.\s", stripped):
+            continue
+        if not stripped:
+            continue
+        # skip caption lines that introduce a block/list (end in ':') —
+        # the code block / list below carries the evidence.
+        if stripped.rstrip().endswith(":"):
+            continue
+        # skip wrapped continuation lines (start lowercase / mid-sentence
+        # punctuation) — a soft-wrapped sentence carries its citation on
+        # another line; flagging the fragment is a false positive.
+        if stripped[0].islower() or stripped[0] in "([":
+            continue
+        if PROPER_NOUN_LINE.search(line) and not cite_re.search(line):
+            # heuristic: only flag lines that look like factual claims
+            if any(w in line.lower() for w in (" runs ", " uses ", " calls ", " talks to ", " stores ", " writes to ", " reads from ", " endpoint ")):
+                problems.append(f"un-cited factual line: {line.strip()[:80]}")
+    return problems
+
+
+def _orphans(notes: list) -> list:
+    """Notes with no inbound AND no outbound body-wikilinks. Uses the same
+    body-link graph as `link` (frontmatter `related` is NOT a link)."""
+    by_slug = {n.slug: n for n in notes}
+    outbound: dict[str, set[str]] = {}
+    inbound: dict[str, set[str]] = {n.slug: set() for n in notes}
+    for n in notes:
+        targets = {t for t in _outgoing_links(n.body) if t in by_slug and t != n.slug}
+        outbound[n.slug] = targets
+        for t in targets:
+            inbound[t].add(n.slug)
+    return [n for n in notes if not outbound[n.slug] and not inbound[n.slug]]
 
 
 def _tokenize(s: str) -> list[str]:

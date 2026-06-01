@@ -57,6 +57,23 @@ def citation_regex(vault: Path | None) -> re.Pattern[str]:
     return re.compile(rf"\[(?:{alternation}):[^\]]+\]")
 
 
+# Per-file token-budget defaults. Mirrors the [budgets] table scaffolded in
+# CONFIG_TOML. lint + doctor both route through this so they never disagree.
+DEFAULT_BUDGETS: dict[str, int] = {"file_warn": 6000, "file_max": 12000}
+
+
+def budgets(vault: Path | None) -> dict[str, int]:
+    """Return per-file token budgets. Defaults, overridden by `[budgets]`
+    (config wins per-key; unspecified keys keep their default)."""
+    cfg = load_config(vault)
+    out = dict(DEFAULT_BUDGETS)
+    for key in out:
+        val = (cfg.get("budgets") or {}).get(key)
+        if isinstance(val, int) and not isinstance(val, bool):
+            out[key] = val
+    return out
+
+
 def note_types(vault: Path | None) -> dict[str, str]:
     """Return type -> directory map. Defaults ∪ user `[types]` (config wins)."""
     cfg = load_config(vault)
