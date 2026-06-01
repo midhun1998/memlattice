@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lattice — your AI agent's long-term memory, in plain markdown</title>
+<meta name="description" content="A tiny CLI + markdown convention that makes AI agent memory structured, verified, multi-tool, and cheap on tokens. No database. No server. Just markdown.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#07070b; --bg-2:#0c0d14; --surface:#11131d; --surface-2:#161927;
+    --line:#21263a; --line-2:#2c3350;
+    --fg:#f4f6fb; --muted:#9aa3bd; --faint:#646d88;
+    --indigo:#6366f1; --violet:#8b5cf6; --cyan:#22d3ee; --sky:#38bdf8;
+    --verify:#34d399; --verify-dim:#0f3d31; --danger:#fb7185;
+    --grad:linear-gradient(110deg,#818cf8 0%,#22d3ee 55%,#a78bfa 100%);
+    --grad-soft:linear-gradient(135deg,rgba(129,140,248,.16),rgba(34,211,238,.10));
+    --ease:cubic-bezier(.16,1,.3,1);
+    --maxw:1120px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg); color:var(--fg);
+    font-family:'Inter',system-ui,sans-serif; line-height:1.6;
+    -webkit-font-smoothing:antialiased; overflow-x:hidden;
+  }
+  ::selection{background:rgba(129,140,248,.32)}
+  a{color:inherit;text-decoration:none}
+  code,.mono{font-family:'JetBrains Mono',monospace}
+
+  /* ---------- ambient graph canvas ---------- */
+  #graph{position:fixed;inset:0;width:100%;height:100%;z-index:0;opacity:.55;pointer-events:none}
+  .veil{position:fixed;inset:0;z-index:1;pointer-events:none;
+    background:radial-gradient(120% 80% at 50% -10%,transparent 40%,rgba(7,7,11,.55) 78%,var(--bg) 100%)}
+  .wrap{position:relative;z-index:2}
+
+  /* ---------- scroll progress ---------- */
+  #progress{position:fixed;top:0;left:0;height:2px;width:0;z-index:60;
+    background:var(--grad);box-shadow:0 0 12px rgba(34,211,238,.7)}
+
+  /* ---------- nav ---------- */
+  nav{position:fixed;top:0;left:0;right:0;z-index:50;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:18px clamp(18px,5vw,46px);
+    backdrop-filter:blur(14px);background:rgba(7,7,11,.55);
+    border-bottom:1px solid transparent;transition:border-color .4s,background .4s}
+  nav.scrolled{border-bottom-color:var(--line);background:rgba(7,7,11,.82)}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:700;font-size:18px;letter-spacing:-.02em}
+  .brand .mark{width:26px;height:26px}
+  .nav-links{display:flex;gap:30px;align-items:center}
+  .nav-links a{color:var(--muted);font-size:14.5px;font-weight:500;transition:color .25s}
+  .nav-links a:hover{color:var(--fg)}
+  .nav-cta{padding:9px 17px;border-radius:10px;background:var(--surface-2);
+    border:1px solid var(--line-2);color:var(--fg)!important;font-weight:600;
+    transition:transform .25s var(--ease),border-color .25s,box-shadow .25s}
+  .nav-cta:hover{transform:translateY(-2px);border-color:var(--indigo);box-shadow:0 8px 26px -10px rgba(99,102,241,.6)}
+  @media(max-width:720px){.nav-links a:not(.nav-cta){display:none}}
+
+  /* ---------- layout ---------- */
+  section{position:relative;padding:clamp(80px,12vh,150px) clamp(18px,5vw,46px)}
+  .inner{max-width:var(--maxw);margin:0 auto}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--cyan);
+    padding:6px 13px;border:1px solid var(--line-2);border-radius:100px;
+    background:rgba(34,211,238,.06)}
+  h1,h2,h3{letter-spacing:-.035em;line-height:1.04;font-weight:800}
+  h2{font-size:clamp(32px,5vw,52px);margin:22px 0 18px}
+  .lead{font-size:clamp(17px,2vw,20px);color:var(--muted);max-width:62ch;font-weight:400}
+  .grad-text{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+  /* ---------- hero ---------- */
+  .hero{min-height:100vh;display:flex;flex-direction:column;justify-content:center;
+    padding-top:120px;padding-bottom:60px}
+  .hero h1{font-size:clamp(44px,8.5vw,104px);font-weight:800}
+  .hero .sub{margin-top:26px;font-size:clamp(18px,2.4vw,24px);color:var(--muted);max-width:60ch;font-weight:400}
+  .hero .sub b{color:var(--fg);font-weight:600}
+  .hero-tag{margin-bottom:30px}
+  .cta-row{display:flex;gap:15px;flex-wrap:wrap;margin-top:42px;align-items:center}
+  .btn{display:inline-flex;align-items:center;gap:10px;padding:15px 26px;border-radius:13px;
+    font-weight:600;font-size:15.5px;cursor:pointer;border:1px solid transparent;
+    transition:transform .25s var(--ease),box-shadow .3s,background .3s,border-color .3s}
+  .btn-primary{background:var(--grad);color:#06070d;
+    box-shadow:0 14px 40px -12px rgba(99,102,241,.7)}
+  .btn-primary:hover{transform:translateY(-3px);box-shadow:0 20px 54px -12px rgba(34,211,238,.65)}
+  .btn-primary:active{transform:translateY(-1px) scale(.98)}
+  .btn-ghost{background:var(--surface);border-color:var(--line-2);color:var(--fg)}
+  .btn-ghost:hover{transform:translateY(-3px);border-color:var(--indigo);background:var(--surface-2)}
+  .btn-ghost:active{transform:translateY(-1px) scale(.98)}
+  .hero-meta{display:flex;gap:26px;flex-wrap:wrap;margin-top:40px;color:var(--faint);font-size:14px}
+  .hero-meta span{display:inline-flex;align-items:center;gap:8px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--verify);box-shadow:0 0 10px var(--verify)}
+
+  /* ---------- terminal ---------- */
+  .term{margin-top:54px;border:1px solid var(--line);border-radius:16px;overflow:hidden;
+    background:linear-gradient(180deg,rgba(22,25,39,.9),rgba(12,13,20,.95));
+    box-shadow:0 40px 90px -40px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.04);
+    max-width:760px}
+  .term-bar{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--line);
+    background:rgba(255,255,255,.02)}
+  .term-bar i{width:12px;height:12px;border-radius:50%;display:inline-block}
+  .term-bar i:nth-child(1){background:#ff5f57}.term-bar i:nth-child(2){background:#febc2e}.term-bar i:nth-child(3){background:#28c840}
+  .term-bar span{margin-left:10px;color:var(--faint);font-size:12.5px;font-family:'JetBrains Mono',monospace}
+  .term-body{padding:20px 22px;font-family:'JetBrains Mono',monospace;font-size:13.6px;line-height:1.85;min-height:230px}
+  .term-body .ln{display:block;white-space:pre-wrap}
+  .c-prompt{color:var(--cyan)}.c-cmd{color:var(--fg)}.c-flag{color:var(--violet)}
+  .c-ok{color:var(--verify)}.c-bad{color:var(--danger)}.c-dim{color:var(--faint)}.c-key{color:var(--sky)}
+  .cursor{display:inline-block;width:8px;height:16px;background:var(--cyan);vertical-align:-2px;
+    animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  /* ---------- reveal ---------- */
+  .reveal{opacity:0;transform:translateY(34px);transition:opacity .8s var(--ease),transform .8s var(--ease)}
+  .reveal.in{opacity:1;transform:none}
+  .reveal[data-d="1"]{transition-delay:.08s}.reveal[data-d="2"]{transition-delay:.16s}
+  .reveal[data-d="3"]{transition-delay:.24s}.reveal[data-d="4"]{transition-delay:.32s}
+
+  /* ---------- problem (before/after) ---------- */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:54px}
+  @media(max-width:860px){.split{grid-template-columns:1fr}}
+  .panel{border:1px solid var(--line);border-radius:16px;padding:26px;background:var(--surface);position:relative;overflow:hidden}
+  .panel.bad{border-color:rgba(251,113,133,.28)}
+  .panel.good{border-color:rgba(52,211,153,.3)}
+  .panel h4{font-size:13px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:18px;font-weight:600}
+  .panel.bad h4{color:var(--danger)}.panel.good h4{color:var(--verify)}
+  .filebar{font-family:'JetBrains Mono',monospace;font-size:12.7px;line-height:1.95;color:var(--muted)}
+  .filebar .big{color:var(--danger)}
+  .stk{display:flex;flex-direction:column;gap:9px}
+  .stk .row{display:flex;align-items:center;gap:11px;font-family:'JetBrains Mono',monospace;font-size:12.7px;color:var(--muted)}
+  .chip{font-size:11px;padding:2px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace}
+  .chip.v{background:var(--verify-dim);color:var(--verify)}
+  .chip.x{background:rgba(251,113,133,.12);color:var(--danger)}
+
+  /* ---------- how it works (motion explainers) ---------- */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:56px}
+  @media(max-width:900px){.steps{grid-template-columns:1fr}}
+  .card{border:1px solid var(--line);border-radius:18px;padding:28px;background:var(--surface);
+    transition:transform .4s var(--ease),border-color .4s,box-shadow .4s;position:relative;overflow:hidden}
+  .card::before{content:"";position:absolute;inset:0;background:var(--grad-soft);opacity:0;transition:opacity .4s}
+  .card:hover{transform:translateY(-6px);border-color:var(--line-2);box-shadow:0 30px 60px -30px rgba(0,0,0,.8)}
+  .card:hover::before{opacity:1}
+  .card>*{position:relative;z-index:1}
+  .card .ic{width:46px;height:46px;border-radius:12px;display:grid;place-items:center;margin-bottom:20px;
+    background:rgba(129,140,248,.1);border:1px solid var(--line-2)}
+  .card h3{font-size:21px;margin-bottom:10px;font-weight:700;letter-spacing:-.02em}
+  .card p{color:var(--muted);font-size:15px}
+  .stage{margin-top:20px;border-top:1px solid var(--line);padding-top:18px;font-family:'JetBrains Mono',monospace;
+    font-size:12.4px;min-height:96px}
+  .lintline{display:flex;align-items:center;gap:9px;transition:color .4s}
+  .lintline .mk{transition:opacity .3s,transform .3s}
+  .shake{animation:shake .5s}
+  @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-4px)}40%,80%{transform:translateX(4px)}}
+  .tokenbar{height:9px;border-radius:6px;background:var(--surface-2);overflow:hidden;margin:10px 0 6px}
+  .tokenbar i{display:block;height:100%;width:6%;background:var(--grad);border-radius:6px;transition:width 1.1s var(--ease)}
+  .mininode{stroke:var(--line-2);stroke-width:1.5;fill:none;opacity:0;transition:opacity .5s}
+  .mininode.on{opacity:1}
+  .minidot{fill:var(--faint);transition:fill .4s,r .4s}
+  .minidot.on{fill:var(--cyan)}
+
+  /* ---------- features grid (bento) ---------- */
+  .bento{display:grid;grid-template-columns:repeat(6,1fr);gap:18px;margin-top:56px}
+  .bento .b{border:1px solid var(--line);border-radius:16px;padding:26px;background:var(--surface);
+    transition:transform .4s var(--ease),border-color .4s}
+  .bento .b:hover{transform:translateY(-4px);border-color:var(--line-2)}
+  .b.span3{grid-column:span 3}.b.span2{grid-column:span 2}.b.span4{grid-column:span 4}.b.span6{grid-column:span 6}
+  @media(max-width:900px){.bento{grid-template-columns:1fr}.b.span3,.b.span2,.b.span4,.b.span6{grid-column:span 1}}
+  .b h3{font-size:18px;margin-bottom:9px;display:flex;align-items:center;gap:10px;font-weight:700}
+  .b p{color:var(--muted);font-size:14.5px}
+  .b .kbd{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);
+    background:rgba(34,211,238,.07);padding:2px 8px;border-radius:6px;border:1px solid var(--line-2)}
+
+  /* ---------- comparison ---------- */
+  .tablewrap{margin-top:50px;border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--surface)}
+  table{width:100%;border-collapse:collapse;font-size:14.5px}
+  th,td{padding:17px 20px;text-align:left;border-bottom:1px solid var(--line)}
+  thead th{font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);font-weight:600;background:rgba(255,255,255,.015)}
+  thead th:first-child{color:var(--muted)}
+  .col-l{background:linear-gradient(180deg,rgba(129,140,248,.08),rgba(34,211,238,.04))}
+  th.col-l{color:var(--fg)!important}
+  tbody td:first-child{color:var(--muted);font-weight:500}
+  td .y{color:var(--verify)}td .n{color:var(--faint)}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover td{background:rgba(255,255,255,.012)}
+
+  /* ---------- opinions strip ---------- */
+  .ops{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-top:50px;counter-reset:op}
+  @media(max-width:900px){.ops{grid-template-columns:1fr 1fr}}
+  @media(max-width:560px){.ops{grid-template-columns:1fr}}
+  .op{border:1px solid var(--line);border-radius:14px;padding:22px;background:var(--surface);position:relative;
+    transition:transform .4s var(--ease),border-color .4s}
+  .op:hover{transform:translateY(-4px);border-color:var(--line-2)}
+  .op::before{counter-increment:op;content:"0" counter(op);font-family:'JetBrains Mono',monospace;
+    font-size:13px;color:var(--cyan);font-weight:600}
+  .op h4{margin:12px 0 7px;font-size:16px;font-weight:700;letter-spacing:-.01em}
+  .op p{color:var(--muted);font-size:13.6px;line-height:1.55}
+
+  /* ---------- final CTA ---------- */
+  .final{text-align:center}
+  .final .inner{max-width:780px}
+  .final h2{font-size:clamp(34px,6vw,64px)}
+  .install{margin:40px auto 0;max-width:520px;border:1px solid var(--line-2);border-radius:14px;
+    background:var(--surface);display:flex;align-items:center;justify-content:space-between;
+    padding:16px 18px;font-family:'JetBrains Mono',monospace;font-size:15px;gap:14px}
+  .install .txt{color:var(--fg)}.install .txt b{color:var(--cyan);font-weight:500}
+  .copy{cursor:pointer;border:1px solid var(--line-2);background:var(--surface-2);color:var(--muted);
+    padding:8px 14px;border-radius:9px;font-size:12.5px;font-family:'Inter';font-weight:600;
+    transition:all .25s var(--ease);white-space:nowrap}
+  .copy:hover{color:var(--fg);border-color:var(--indigo)}
+  .copy.done{color:var(--verify);border-color:var(--verify)}
+
+  footer{border-top:1px solid var(--line);padding:40px clamp(18px,5vw,46px);
+    display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;
+    color:var(--faint);font-size:13.5px}
+  footer .brand{font-size:15px;color:var(--muted)}
+
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+    .reveal{opacity:1;transform:none}
+    #graph{opacity:.3}
+  }
+</style>
+</head>
+<body>
+<canvas id="graph" aria-hidden="true"></canvas>
+<div class="veil" aria-hidden="true"></div>
+<div id="progress" aria-hidden="true"></div>
+
+<div class="wrap">
+<nav id="nav">
+  <a class="brand" href="#top" aria-label="lattice home">
+    <svg class="mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <defs><linearGradient id="lg" x1="0" y1="0" x2="32" y2="32">
+        <stop stop-color="#818cf8"/><stop offset=".55" stop-color="#22d3ee"/><stop offset="1" stop-color="#a78bfa"/>
+      </linearGradient></defs>
+      <circle cx="6" cy="6" r="3" fill="url(#lg)"/><circle cx="26" cy="6" r="3" fill="url(#lg)"/>
+      <circle cx="16" cy="16" r="3.4" fill="url(#lg)"/><circle cx="6" cy="26" r="3" fill="url(#lg)"/>
+      <circle cx="26" cy="26" r="3" fill="url(#lg)"/>
+      <path d="M6 6L16 16M26 6L16 16M16 16L6 26M16 16L26 26M6 6L6 26M26 6L26 26" stroke="url(#lg)" stroke-width="1.4" opacity=".55"/>
+    </svg>
+    lattice
+  </a>
+  <div class="nav-links">
+    <a href="#how">How it works</a>
+    <a href="#features">Features</a>
+    <a href="#compare">Compare</a>
+    <a href="https://github.com/midhun1998/lattice" class="nav-cta">GitHub ↗</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero" id="top">
+  <div class="inner">
+    <div class="hero-tag reveal"><span class="eyebrow">Open source · zero dependencies</span></div>
+    <h1 class="reveal" data-d="1">Your agent's memory,<br><span class="grad-text">verified by construction.</span></h1>
+    <p class="sub reveal" data-d="2">Every Claude Code, Cursor, or Aider user ends up with a 2,000-line <code>CLAUDE.md</code> the model never fully reads — riddled with speculation it later cites as fact. <b>lattice</b> is a tiny CLI + markdown convention that makes that memory <b>structured, cited, multi-tool, and cheap on tokens</b>. No database. No server. Just markdown.</p>
+    <div class="cta-row reveal" data-d="3">
+      <a class="btn btn-primary" href="#install" data-magnetic>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" stroke="#06070d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Install in 30 seconds
+      </a>
+      <a class="btn btn-ghost" href="#how" data-magnetic>See how it works</a>
+    </div>
+    <div class="hero-meta reveal" data-d="4">
+      <span><span class="dot"></span> pipx install · no API keys</span>
+      <span><span class="dot"></span> works in Claude Code, Cursor, Aider</span>
+      <span><span class="dot"></span> plain <code>.md</code> — grep-able forever</span>
+    </div>
+
+    <div class="term reveal" data-d="4" id="heroterm">
+      <div class="term-bar"><i></i><i></i><i></i><span>~/knowledge — lattice</span></div>
+      <div class="term-body" id="termbody"></div>
+    </div>
+  </div>
+</section>
+
+<!-- PROBLEM -->
+<section id="problem">
+  <div class="inner">
+    <span class="eyebrow reveal">The drift problem</span>
+    <h2 class="reveal" data-d="1">One file. Growing unbounded.<br><span class="grad-text">Quietly lying to your agent.</span></h2>
+    <p class="lead reveal" data-d="2">Loose memory rots. Facts go stale, speculation hardens into "truth," and a 50K-token wall of context dominates every new session — most of it irrelevant to the task at hand.</p>
+    <div class="split">
+      <div class="panel bad reveal" data-d="1">
+        <h4>◆ CLAUDE.md, six months in</h4>
+        <div class="filebar">
+          <div>CLAUDE.md <span class="big">47,300 tokens</span></div>
+          <div class="c-dim">────────────────────────────</div>
+          <div>“PaymentGateway uses Redis…” <span class="chip x">uncited</span></div>
+          <div>“the queue retries 3×…” <span class="chip x">stale?</span></div>
+          <div>“auth tokens last 24h…” <span class="chip x">who said?</span></div>
+          <div class="c-dim">… +1,900 more lines the model skims</div>
+        </div>
+      </div>
+      <div class="panel good reveal" data-d="2">
+        <h4>◆ A lattice vault</h4>
+        <div class="stk">
+          <div class="row">flows/checkout.md <span class="chip v">cited ✓</span></div>
+          <div class="row">components/payment-gateway.md <span class="chip v">verified ✓</span></div>
+          <div class="row">api/billing.md <span class="chip v">fresh ✓</span></div>
+          <div class="row c-dim">speculation → quarantined in ## Open questions</div>
+          <div class="row" style="color:var(--cyan)">lattice context → only ~2,140 tokens loaded</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS — motion as explanation -->
+<section id="how">
+  <div class="inner">
+    <span class="eyebrow reveal">How it works</span>
+    <h2 class="reveal" data-d="1">Three guarantees, <span class="grad-text">enforced mechanically.</span></h2>
+    <p class="lead reveal" data-d="2">Not a vibe — a linter, a retriever, and a graph. Each one runs locally over plain markdown.</p>
+    <div class="steps">
+
+      <!-- 1. verification gate -->
+      <div class="card reveal" data-d="1" id="card-lint">
+        <div class="ic" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M9 12l2 2 4-4" stroke="#34d399" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="9" stroke="#34d399" stroke-width="1.7"/></svg>
+        </div>
+        <h3>The verification gate</h3>
+        <p>Every named service, endpoint, or fact must carry a citation. Uncited claims can't enter the body — <code>lattice lint</code> blocks them. Speculation lives in a quarantined section.</p>
+        <div class="stage" id="lintstage" aria-hidden="true">
+          <div class="lintline" id="lintl"><span class="mk c-bad" id="lintmk">✗</span><span id="linttext">PaymentGateway stores tokens in Redis.</span></div>
+          <div class="c-dim" id="linthint" style="margin-top:8px;transition:opacity .4s">↳ un-cited factual line — rejected</div>
+        </div>
+      </div>
+
+      <!-- 2. token-aware retrieval -->
+      <div class="card reveal" data-d="2" id="card-ctx">
+        <div class="ic" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h10M4 18h6" stroke="#22d3ee" stroke-width="2.2" stroke-linecap="round"/></svg>
+        </div>
+        <h3>Token-aware retrieval</h3>
+        <p><code>lattice context "…"</code> returns only the smallest relevant subgraph — BM25 over headings, expanded one hop along <code>[[wikilinks]]</code>, trimmed to a token budget. Not the whole vault.</p>
+        <div class="stage" id="ctxstage" aria-hidden="true">
+          <div class="c-dim" id="ctxq">› "how does checkout settle a payment?"</div>
+          <div class="tokenbar"><i id="ctxbar"></i></div>
+          <div><span class="c-key" id="ctxtok">~140</span><span class="c-dim"> / 4,000 tokens · </span><span class="c-ok" id="ctxfiles">3 files</span></div>
+        </div>
+      </div>
+
+      <!-- 3. link graph -->
+      <div class="card reveal" data-d="3" id="card-graph">
+        <div class="ic" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="6" cy="6" r="2.4" stroke="#a78bfa" stroke-width="1.8"/><circle cx="18" cy="7" r="2.4" stroke="#a78bfa" stroke-width="1.8"/><circle cx="12" cy="18" r="2.4" stroke="#a78bfa" stroke-width="1.8"/><path d="M7.6 7.4L11 16M16.4 8.6L13 16M8 6.4h8" stroke="#a78bfa" stroke-width="1.5" opacity=".7"/></svg>
+        </div>
+        <h3>A graph, not a folder</h3>
+        <p><code>[[wikilinks]]</code> form the edges. <code>lattice link</code> maintains bidirectional <code>Referenced by</code> backlinks automatically — idempotently, never destroying an edge. Works in Obsidian, in grep, in any agent.</p>
+        <div class="stage" id="graphstage" aria-hidden="true">
+          <svg viewBox="0 0 240 90" width="100%" height="84" id="minigraph">
+            <line class="mininode" x1="40" y1="24" x2="120" y2="46" data-i="0"/>
+            <line class="mininode" x1="200" y1="24" x2="120" y2="46" data-i="1"/>
+            <line class="mininode" x1="120" y1="46" x2="70" y2="76" data-i="2"/>
+            <line class="mininode" x1="120" y1="46" x2="180" y2="76" data-i="3"/>
+            <circle class="minidot" cx="40" cy="24" r="5" data-i="0"/>
+            <circle class="minidot" cx="200" cy="24" r="5" data-i="1"/>
+            <circle class="minidot" cx="120" cy="46" r="6.5" data-i="2"/>
+            <circle class="minidot" cx="70" cy="76" r="5" data-i="3"/>
+            <circle class="minidot" cx="180" cy="76" r="5" data-i="4"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES BENTO -->
+<section id="features">
+  <div class="inner">
+    <span class="eyebrow reveal">The toolbox</span>
+    <h2 class="reveal" data-d="1">Small surface. <span class="grad-text">Sharp edges.</span></h2>
+    <p class="lead reveal" data-d="2">Eight commands. Everything is plain markdown underneath — adapt it to any system, any team, any agent.</p>
+    <div class="bento">
+      <div class="b span3 reveal" data-d="1">
+        <h3><span class="kbd">lattice lint</span></h3>
+        <p>The cited-fact checker. Flags un-cited claims, missing sections, and token-budget breaches. Your pre-commit hook for memory — it stays out of the way until your facts drift, then yells.</p>
+      </div>
+      <div class="b span3 reveal" data-d="2">
+        <h3><span class="kbd">lattice context</span></h3>
+        <p>Deterministic, embedding-free retrieval over the link graph. Emits a token-bounded manifest your agent can read directly — load 2K of a 50K vault, not all of it.</p>
+      </div>
+      <div class="b span2 reveal" data-d="1">
+        <h3><span class="kbd">lattice link</span></h3>
+        <p>Bidirectional backlinks, rebuilt idempotently. Never destroys an edge.</p>
+      </div>
+      <div class="b span2 reveal" data-d="2">
+        <h3><span class="kbd">lattice stale</span></h3>
+        <p>Surfaces every note older than N days. Your memory has a freshness date.</p>
+      </div>
+      <div class="b span2 reveal" data-d="3">
+        <h3><span class="kbd">lattice digest</span></h3>
+        <p>Compresses an unbounded session history into a re-loadable index. ~80% smaller.</p>
+      </div>
+      <div class="b span6 reveal" data-d="1">
+        <h3>Config-driven, for <span class="grad-text" style="-webkit-text-fill-color:transparent">any system you use</span></h3>
+        <p>Citation schemes and note types are yours to define. Ship with vendor-neutral defaults (<span class="kbd">file</span> <span class="kbd">doc</span> <span class="kbd">url</span> <span class="kbd">commit</span> <span class="kbd">pr</span>) and add your own — <span class="kbd">jira</span>, <span class="kbd">linear</span>, <span class="kbd">notion</span> — in one line of <code>config.toml</code>. No vendor is baked into the core. Tool-agnostic by design: Claude Code, Cursor, Windsurf, Aider, Continue all read the same files.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FIVE OPINIONS -->
+<section id="opinions">
+  <div class="inner">
+    <span class="eyebrow reveal">The five opinions</span>
+    <h2 class="reveal" data-d="1">Opinionated where it <span class="grad-text">prevents drift.</span></h2>
+    <div class="ops">
+      <div class="op reveal" data-d="1"><h4>Structure by construction</h4><p>Configurable layers — components, flows, api, or your own — so loose memory becomes organized automatically.</p></div>
+      <div class="op reveal" data-d="2"><h4>Verification gates</h4><p>Every fact cites a source. Speculation is physically quarantined and can't pollute the body.</p></div>
+      <div class="op reveal" data-d="3"><h4>Graph via markdown</h4><p><code>[[wikilinks]]</code>, not a database. Works in Obsidian, in grep, in any LLM.</p></div>
+      <div class="op reveal" data-d="4"><h4>Tool-agnostic</h4><p>One vault, every agent. Per-tool entry stubs are thin pointers, not lock-in.</p></div>
+      <div class="op reveal" data-d="1"><h4>Token-aware</h4><p>Load the smallest relevant subgraph. Frontmatter budgets keep files from running away.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- COMPARE -->
+<section id="compare">
+  <div class="inner">
+    <span class="eyebrow reveal">Why not just…</span>
+    <h2 class="reveal" data-d="1">Where lattice <span class="grad-text">sits.</span></h2>
+    <p class="lead reveal" data-d="2">A convention plus a small CLI — not a service, not a runtime, not vendor lock-in.</p>
+    <div class="tablewrap reveal" data-d="2">
+      <table>
+        <thead><tr>
+          <th></th><th class="col-l">lattice</th><th>CLAUDE.md / AGENTS.md</th><th>Hosted memory runtimes</th><th>Obsidian + RAG plugin</th>
+        </tr></thead>
+        <tbody>
+          <tr><td>File-native plain markdown</td><td class="col-l"><span class="y">● yes</span></td><td><span class="y">● yes</span></td><td><span class="n">○ opaque store</span></td><td><span class="y">● yes</span></td></tr>
+          <tr><td>Citation / verification gate</td><td class="col-l"><span class="y">● enforced</span></td><td><span class="n">○ none</span></td><td><span class="n">○ none</span></td><td><span class="n">○ none</span></td></tr>
+          <tr><td>Token-bounded retrieval</td><td class="col-l"><span class="y">● built-in</span></td><td><span class="n">○ loads all</span></td><td><span class="y">● yes</span></td><td><span class="y">● yes</span></td></tr>
+          <tr><td>No server / no database</td><td class="col-l"><span class="y">● none</span></td><td><span class="y">● none</span></td><td><span class="n">○ hosted</span></td><td><span class="n">○ plugin runtime</span></td></tr>
+          <tr><td>Multi-tool (CC / Cursor / Aider)</td><td class="col-l"><span class="y">● any</span></td><td><span class="n">○ per-tool</span></td><td><span class="n">○ single SDK</span></td><td><span class="n">○ Obsidian only</span></td></tr>
+          <tr><td>Bounded file growth</td><td class="col-l"><span class="y">● lint budgets</span></td><td><span class="n">○ unbounded</span></td><td><span class="y">● managed</span></td><td><span class="n">○ manual</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="final" id="install">
+  <div class="inner">
+    <span class="eyebrow reveal">Get started</span>
+    <h2 class="reveal" data-d="1">Shrink your <code>CLAUDE.md</code> from<br><span class="grad-text">1,800 lines to 30.</span></h2>
+    <p class="lead reveal" data-d="2" style="margin-left:auto;margin-right:auto">Install, run <code>init</code>, and within 15 minutes your agent is reading verified memory — selectively, by relevance, on every query.</p>
+    <div class="install reveal" data-d="2">
+      <span class="txt"><b>$</b> pipx install memlattice</span>
+      <button class="copy" id="copybtn" data-magnetic>Copy</button>
+    </div>
+    <div class="cta-row reveal" data-d="3" style="justify-content:center">
+      <a class="btn btn-primary" href="https://github.com/midhun1998/lattice" data-magnetic>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.5 11.5 0 016 0C17.3 4.7 18.3 5 18.3 5c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+        Star on GitHub
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/midhun1998/lattice#readme" data-magnetic>Read the docs</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span class="brand">
+    <svg class="mark" width="20" height="20" viewBox="0 0 32 32" fill="none" aria-hidden="true"><use href="#lg"/><circle cx="16" cy="16" r="3" fill="#22d3ee"/></svg>
+    lattice — memory in plain markdown
+  </span>
+  <span>MIT licensed · built for agents that should know better · © 2026</span>
+</footer>
+</div>
+
+<script>
+(function(){
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---- scroll progress + nav ---- */
+  var prog=document.getElementById('progress'), nav=document.getElementById('nav');
+  function onScroll(){
+    var h=document.documentElement, max=h.scrollHeight-h.clientHeight;
+    prog.style.width=(max>0?(h.scrollTop/max*100):0)+'%';
+    nav.classList.toggle('scrolled', h.scrollTop>20);
+  }
+  document.addEventListener('scroll',onScroll,{passive:true}); onScroll();
+
+  /* ---- reveal on scroll ---- */
+  var io=new IntersectionObserver(function(es){
+    es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target);} });
+  },{threshold:.16});
+  document.querySelectorAll('.reveal').forEach(function(el){ io.observe(el); });
+
+  /* ---- magnetic buttons ---- */
+  if(!reduce){
+    document.querySelectorAll('[data-magnetic]').forEach(function(el){
+      el.addEventListener('mousemove',function(ev){
+        var r=el.getBoundingClientRect();
+        el.style.transform='translate('+((ev.clientX-r.left-r.width/2)*.18)+'px,'+((ev.clientY-r.top-r.height/2)*.28-2)+'px)';
+      });
+      el.addEventListener('mouseleave',function(){ el.style.transform=''; });
+    });
+  }
+
+  /* ---- copy button ---- */
+  var cb=document.getElementById('copybtn');
+  cb.addEventListener('click',function(){
+    navigator.clipboard && navigator.clipboard.writeText('pipx install memlattice');
+    cb.textContent='Copied ✓'; cb.classList.add('done');
+    setTimeout(function(){ cb.textContent='Copy'; cb.classList.remove('done'); },1800);
+  });
+
+  /* ---- hero terminal typing ---- */
+  var lines=[
+    {h:'<span class="c-prompt">$</span> <span class="c-cmd">lattice new flow checkout</span>'},
+    {h:'<span class="c-dim">created flows/checkout.md</span>'},
+    {h:'<span class="c-prompt">$</span> <span class="c-cmd">lattice lint</span>'},
+    {h:'flows/checkout.md  <span class="c-bad">✗ un-cited: "PaymentGateway stores tokens in Redis"</span>'},
+    {h:'<span class="c-dim"># add a citation…</span> <span class="c-key">[doc:payments/runbook]</span>'},
+    {h:'<span class="c-prompt">$</span> <span class="c-cmd">lattice lint</span>'},
+    {h:'flows/checkout.md  <span class="c-ok">✓ ok</span>'},
+    {h:'<span class="c-prompt">$</span> <span class="c-cmd">lattice context</span> <span class="c-flag">"how does checkout settle?"</span>'},
+    {h:'<span class="c-ok">→ 3 files · ~2,140 / 4,000 tokens</span> <span class="c-dim">(vault: 47,300)</span>'}
+  ];
+  var tb=document.getElementById('termbody'), li=0;
+  function typeLine(){
+    if(li>=lines.length){ var c=document.createElement('span'); c.className='cursor'; tb.appendChild(c); return; }
+    var d=document.createElement('span'); d.className='ln'; d.innerHTML=lines[li].h; tb.appendChild(d);
+    li++; setTimeout(typeLine, reduce?0:520);
+  }
+  // start typing when hero terminal visible
+  var ht=document.getElementById('heroterm'), started=false;
+  var hio=new IntersectionObserver(function(es){
+    es.forEach(function(e){ if(e.isIntersecting && !started){ started=true; if(reduce){ lines.forEach(function(l){var d=document.createElement('span');d.className='ln';d.innerHTML=l.h;tb.appendChild(d);}); } else { typeLine(); } hio.disconnect(); } });
+  },{threshold:.3});
+  hio.observe(ht);
+
+  /* ---- explainer 1: lint gate (reject -> cite -> accept) ---- */
+  var lintRun=false;
+  function playLint(){
+    if(lintRun||reduce) return; lintRun=true;
+    var line=document.getElementById('lintl'), mk=document.getElementById('lintmk'),
+        txt=document.getElementById('linttext'), hint=document.getElementById('linthint');
+    line.classList.add('shake');
+    setTimeout(function(){
+      line.classList.remove('shake');
+      txt.innerHTML='PaymentGateway stores tokens in Redis <span class="c-key">[doc:payments/runbook]</span>.';
+      mk.textContent='✓'; mk.className='mk c-ok';
+      hint.style.color='var(--verify)'; hint.textContent='↳ cited — passes the gate';
+    },1500);
+  }
+  /* ---- explainer 2: token bar fill ---- */
+  var ctxRun=false;
+  function playCtx(){
+    if(ctxRun) return; ctxRun=true;
+    var bar=document.getElementById('ctxbar'), tok=document.getElementById('ctxtok');
+    if(reduce){ bar.style.width='53%'; tok.textContent='~2,140'; return; }
+    setTimeout(function(){ bar.style.width='53%'; },200);
+    var n=140, target=2140, t0=null;
+    function step(ts){ if(!t0)t0=ts; var p=Math.min((ts-t0)/1100,1);
+      tok.textContent='~'+Math.round(140+(target-140)*p).toLocaleString();
+      if(p<1) requestAnimationFrame(step); }
+    requestAnimationFrame(step);
+  }
+  /* ---- explainer 3: graph draw ---- */
+  var graphRun=false;
+  function playGraph(){
+    if(graphRun) return; graphRun=true;
+    var dots=document.querySelectorAll('#minigraph .minidot'), edges=document.querySelectorAll('#minigraph .mininode');
+    if(reduce){ dots.forEach(function(d){d.classList.add('on');}); edges.forEach(function(e){e.classList.add('on');}); return; }
+    var seq=[0,1,2,3,4];
+    seq.forEach(function(i,k){ setTimeout(function(){ if(dots[i])dots[i].classList.add('on'); },k*220); });
+    edges.forEach(function(e,k){ setTimeout(function(){ e.classList.add('on'); }, 500+k*240); });
+  }
+  function watch(id,fn){ var el=document.getElementById(id);
+    var o=new IntersectionObserver(function(es){ es.forEach(function(e){ if(e.isIntersecting){ fn(); o.disconnect(); } }); },{threshold:.5});
+    o.observe(el);
+  }
+  watch('lintstage',playLint); watch('ctxstage',playCtx); watch('graphstage',playGraph);
+
+  /* ---- ambient knowledge-graph canvas ---- */
+  var cv=document.getElementById('graph'), ctx=cv.getContext('2d'), W,H,nodes,DPR;
+  function resize(){ DPR=Math.min(window.devicePixelRatio||1,2); W=cv.width=innerWidth*DPR; H=cv.height=innerHeight*DPR;
+    cv.style.width=innerWidth+'px'; cv.style.height=innerHeight+'px'; init(); }
+  function init(){ var count=Math.min(Math.round(innerWidth/16),78); nodes=[];
+    for(var i=0;i<count;i++){ nodes.push({x:Math.random()*W,y:Math.random()*H,
+      vx:(Math.random()-.5)*0.12*DPR, vy:(Math.random()-.5)*0.12*DPR, r:(Math.random()*1.6+1)*DPR}); } }
+  var mx=-999,my=-999;
+  if(!reduce){ window.addEventListener('mousemove',function(e){ mx=e.clientX*DPR; my=e.clientY*DPR; }); }
+  function draw(){
+    ctx.clearRect(0,0,W,H); var link=140*DPR;
+    for(var i=0;i<nodes.length;i++){ var n=nodes[i];
+      if(!reduce){ n.x+=n.vx; n.y+=n.vy; if(n.x<0||n.x>W)n.vx*=-1; if(n.y<0||n.y>H)n.vy*=-1; }
+      for(var j=i+1;j<nodes.length;j++){ var m=nodes[j], dx=n.x-m.x, dy=n.y-m.y, d=Math.sqrt(dx*dx+dy*dy);
+        if(d<link){ var a=(1-d/link)*0.5; ctx.strokeStyle='rgba(99,118,230,'+a+')'; ctx.lineWidth=DPR*0.6;
+          ctx.beginPath(); ctx.moveTo(n.x,n.y); ctx.lineTo(m.x,m.y); ctx.stroke(); } }
+      var ddx=n.x-mx, ddy=n.y-my, dm=Math.sqrt(ddx*ddx+ddy*ddy), near=dm<170*DPR;
+      ctx.beginPath(); ctx.arc(n.x,n.y,n.r*(near?1.8:1),0,6.28);
+      ctx.fillStyle=near?'rgba(34,211,238,.9)':'rgba(129,140,248,.55)'; ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  }
+  resize(); window.addEventListener('resize',resize); requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
