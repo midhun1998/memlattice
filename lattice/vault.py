@@ -7,11 +7,15 @@ from pathlib import Path
 
 import yaml
 
+from .config import citation_regex as _citation_regex
+
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 WIKILINK_RE = re.compile(r"\[\[([^\]\|#]+)(?:#[^\]\|]+)?(?:\|[^\]]+)?\]\]")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
-CITATION_RE = re.compile(r"\[(file|jira|doc|chat|conv):[^\]]+\]")
-PROPER_SERVICE_RE = re.compile(r"\b([A-Z][A-Za-z0-9+]{2,}(?:[- ][A-Z][A-Za-z0-9+]+)*)\b")
+# Backward-compat: a citation matcher over the vendor-neutral DEFAULT schemes.
+# Vault-aware checks should use config.citation_regex(vault) so user-declared
+# `[citations] extra` schemes are honored; this constant covers defaults only.
+CITATION_RE = _citation_regex(None)
 
 
 @dataclass

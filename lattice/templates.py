@@ -16,8 +16,9 @@ Applies to every file in this vault.
 3. **Speculation -> `## Open questions`.** Dated, labeled. Graduates only
    after verification.
 4. **Cite sources.** Every named service / repo / endpoint gets a
-   citation token: `[file:path]`, `[doc:url]`, `[jira:saved-search]`,
-   `[chat:#channel:date]`, `[conv:person:date]`.
+   citation token: `[file:path]`, `[doc:url]`, `[url:link]`,
+   `[commit:sha]`, `[pr:owner/repo#n]`, `[conv:person:date]`. Add your
+   own schemes (jira, linear, ...) via `[citations] extra` in config.
 5. **Datestamp updates.** Bump `last_verified` in frontmatter on edit.
 6. **Never silently delete.** Use strikethrough +
    `(superseded YYYY-MM-DD: ...)`.
@@ -92,6 +93,18 @@ context_default = 4000
 require_citations = true
 require_open_questions = true
 require_referenced_by = true
+
+# Note types -> their directory. The three below are the built-in defaults;
+# uncomment/extend to add your own (the dir is created on first `lattice new`).
+[types]
+# runbook  = "runbooks"
+# decision = "decisions"
+
+# Citation schemes. Defaults are vendor-neutral: file, doc, url, commit, pr,
+# conv, chat. Add the source systems YOUR team cites so `lattice lint` accepts
+# them, e.g. jira / linear / notion / confluence.
+[citations]
+# extra = ["jira", "confluence"]
 
 # Run scripts after a lattice command finishes successfully.
 # Available events: post-init, post-new, post-link, post-lint, post-stale,

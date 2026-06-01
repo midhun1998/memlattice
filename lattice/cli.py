@@ -10,17 +10,14 @@ import click
 
 from . import __version__
 from . import templates as T
-from .config import load_config, run_hook
+from .config import citation_regex, load_config, note_types, run_hook
 from .vault import (
-    CITATION_RE,
     HEADING_RE,
     find_vault,
     load_vault,
 )
 
 PROPER_NOUN_LINE = re.compile(r"\b([A-Z][A-Za-z0-9+]{2,}(?:[- ][A-Z][A-Za-z0-9+]+)*)\b")
-ALLOWED_TYPES = {"flow", "component", "api"}
-TYPE_DIRS = {"flow": "flows", "component": "components", "api": "api"}
 
 
 def _today() -> str:
@@ -81,15 +78,24 @@ def init(path: Path) -> None:
 
 
 @main.command()
-@click.argument("kind", type=click.Choice(sorted(ALLOWED_TYPES)))
+@click.argument("kind")
 @click.argument("slug")
 def new(kind: str, slug: str) -> None:
-    """Create a new note from the template."""
+    """Create a new note from the template.
+
+    KIND is any type configured in `[types]` (defaults: flow, component, api).
+    """
     root = find_vault(Path.cwd())
     if root is None:
         _err("not in a lattice vault (no _protocol.md found)")
         sys.exit(2)
-    target = root / TYPE_DIRS[kind] / f"{slug}.md"
+    types = note_types(root)
+    if kind not in types:
+        _err(f"unknown type {kind!r}; configured types: {', '.join(sorted(types))}")
+        _err("add it under [types] in .lattice/config.toml to use a new one")
+        sys.exit(2)
+    target = root / types[kind] / f"{slug}.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         _err(f"{target} already exists")
         sys.exit(1)
@@ -138,6 +144,7 @@ def lint() -> None:
     """Check citations, structure, token budgets."""
     root = find_vault(Path.cwd()) or _abort_no_vault()
     notes = load_vault(root)
+    cite_re = citation_regex(root)
     errors = 0
     for n in notes:
         problems: list[str] = []
@@ -177,7 +184,7 @@ def lint() -> None:
             # another line; flagging the fragment is a false positive.
             if stripped[0].islower() or stripped[0] in "([":
                 continue
-            if PROPER_NOUN_LINE.search(line) and not CITATION_RE.search(line):
+            if PROPER_NOUN_LINE.search(line) and not cite_re.search(line):
                 # heuristic: only flag lines that look like factual claims
                 if any(w in line.lower() for w in (" runs ", " uses ", " calls ", " talks to ", " stores ", " writes to ", " reads from ", " endpoint ")):
                     problems.append(f"un-cited factual line: {line.strip()[:80]}")
