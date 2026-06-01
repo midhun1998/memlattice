@@ -108,7 +108,7 @@ require_referenced_by = true
 
 # Run scripts after a lattice command finishes successfully.
 # Available events: post-init, post-new, post-link, post-lint, post-stale,
-#                   post-context, post-digest, post-cache.
+#                   post-context, post-digest, post-cache, post-doctor.
 # Each entry is a shell command. Working dir = vault root.
 # Useful env vars passed in:
 #   LATTICE_VAULT, LATTICE_EVENT, LATTICE_ARGS,
