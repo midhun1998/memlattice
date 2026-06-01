@@ -8,8 +8,8 @@ from lattice.vault import CITATION_RE
 
 
 def test_public_citation_re_is_vendor_neutral():
-    """The module-level CITATION_RE must not embed any internal vendor name."""
-    for vendor in ("jira", "chat", "gitlab"):
+    """The module-level CITATION_RE must not embed any non-default vendor name."""
+    for vendor in ("jira", "zendesk", "asana"):
         assert vendor not in CITATION_RE.pattern
     # still matches the generic defaults
     assert CITATION_RE.search("[file:x.py]")
@@ -17,8 +17,8 @@ def test_public_citation_re_is_vendor_neutral():
 
 
 def test_default_schemes_are_vendor_neutral():
-    """OSS default must not bake in any internal/vendor source name."""
-    for vendor in ("jira", "chat", "gitlab", "jira"):
+    """OSS default must not bake in any third-party/product source name."""
+    for vendor in ("jira", "zendesk", "asana", "linear"):
         assert vendor not in DEFAULT_CITATION_SCHEMES, (
             f"{vendor!r} is vendor-specific and must not be an OSS default"
         )
@@ -36,16 +36,16 @@ def test_regex_matches_default_schemes():
 
 def test_regex_excludes_unconfigured_scheme_by_default():
     rx = citation_regex(None)
-    # 'jira' is NOT a default; a bare jira citation should not match
-    assert not rx.search("query [jira:my-saved-search]")
+    # 'zendesk' is NOT a default; a bare zendesk citation should not match
+    assert not rx.search("query [zendesk:TICKET-9]")
 
 
 def test_config_extra_schemes_extend_defaults(tmp_path: Path):
     """A user can declare extra citation schemes in config.toml."""
-    _write_vault(tmp_path, extra_citations=["jira", "jira"])
+    _write_vault(tmp_path, extra_citations=["zendesk", "jira"])
     rx = citation_regex(tmp_path)
     # extras now match...
-    assert rx.search("query [jira:my-saved-search]")
+    assert rx.search("query [zendesk:TICKET-9]")
     assert rx.search("ticket [jira:PROJ-123]")
     # ...and defaults still match
     assert rx.search("code [file:a/b.py]")
