@@ -116,7 +116,10 @@ def link(fix: bool) -> None:
     by_slug = {n.slug: n for n in notes}
     backrefs: dict[str, set[str]] = {n.slug: set() for n in notes}
     for n in notes:
-        for target in n.links:
+        # Only count GENUINE outgoing links — exclude the auto-maintained
+        # `Referenced by` section, else its backlinks get re-counted as
+        # outgoing on the next run, oscillating and destroying backrefs.
+        for target in _outgoing_links(n.body):
             if target in by_slug:
                 backrefs[target].add(n.slug)
     changed = 0
@@ -170,14 +173,26 @@ def lint() -> None:
             n.body,
             flags=re.DOTALL | re.MULTILINE,
         )
+        in_code_fence = False
         for line in body_for_check.splitlines():
             stripped = line.lstrip()
+            # track fenced code blocks (``` or ~~~) — everything inside is
+            # code/output, never a prose claim. The fence lines toggle state.
+            if stripped.startswith(("```", "~~~")):
+                in_code_fence = not in_code_fence
+                continue
+            if in_code_fence:
+                continue
             if stripped.startswith(("|", "#", "-", "*", ">", "_", "`")):
                 continue
             # skip numbered list items (procedural steps, not standalone claims)
             if re.match(r"\d+\.\s", stripped):
                 continue
             if not stripped:
+                continue
+            # skip caption lines that introduce a block/list (end in ':') —
+            # the code block / list below carries the evidence.
+            if stripped.rstrip().endswith(":"):
                 continue
             # skip wrapped continuation lines (start lowercase / mid-sentence
             # punctuation) — a soft-wrapped sentence carries its citation on
@@ -383,6 +398,21 @@ def digest(history_file: Path, keep_recent: int, write: bool, no_cache: bool) ->
 def _abort_no_vault() -> Path:
     _err("not in a lattice vault (no _protocol.md found)")
     sys.exit(2)
+
+
+def _outgoing_links(body: str) -> list[str]:
+    """Wikilink targets in a note's body, EXCLUDING the auto-maintained
+    `Referenced by` section (those are inbound backrefs, not outbound links).
+    """
+    from .vault import WIKILINK_RE
+    # drop everything from the `Referenced by` heading to the next heading/EOF
+    trimmed = re.sub(
+        r"##\s*(?:\d+\.\s*)?Referenced by.*?(?=^##\s|\Z)",
+        "",
+        body,
+        flags=re.DOTALL | re.MULTILINE,
+    )
+    return list({m.group(1).strip() for m in WIKILINK_RE.finditer(trimmed)})
 
 
 def _tokenize(s: str) -> list[str]:
