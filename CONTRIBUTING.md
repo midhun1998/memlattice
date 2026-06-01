@@ -20,7 +20,7 @@ welcome.
 ## Development setup
 
 ```bash
-git clone https://github.com/midhun1998/lattice && cd lattice
+git clone https://github.com/midhun1998/memlattice && cd memlattice
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[agentic]"      # editable install + optional Claude backend
 pip install pytest               # test runner

@@ -7,7 +7,7 @@ paths, so its attack surface is small — but if you find a security issue, we
 still want to hear about it.
 
 Please **do not open a public issue** for security problems. Instead, use
-GitHub's [private vulnerability reporting](https://github.com/midhun1998/lattice/security/advisories/new)
+GitHub's [private vulnerability reporting](https://github.com/midhun1998/memlattice/security/advisories/new)
 to report it privately. We'll acknowledge within a few days and work with you
 on a fix and disclosure timeline.
 

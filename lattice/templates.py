@@ -69,7 +69,7 @@ README_MD = """\
 # {name}
 
 Long-term memory vault for AI coding agents. Managed by
-[lattice](https://github.com/midhun1998/lattice).
+[lattice](https://github.com/midhun1998/memlattice).
 
 - `components/` per-service notes
 - `flows/` end-to-end product paths

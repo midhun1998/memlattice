@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/midhun1998/lattice/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/midhun1998/lattice/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/midhun1998/memlattice/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/midhun1998/memlattice/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-blue.svg">
   <img alt="Dependencies" src="https://img.shields.io/badge/deps-3-brightgreen.svg">
-  <a href="https://midhun1998.github.io/lattice/"><img alt="Landing page" src="https://img.shields.io/badge/site-lattice-22d3ee.svg"></a>
+  <a href="https://midhun1998.github.io/memlattice/"><img alt="Landing page" src="https://img.shields.io/badge/site-lattice-22d3ee.svg"></a>
 </p>
 
 ---
@@ -133,7 +133,7 @@ Defaults ship vendor-neutral (`file`, `doc`, `url`, `commit`, `pr`, `conv`,
 
 ## Documentation
 
-- 🌐 **[Landing page](https://midhun1998.github.io/lattice/)** — the pitch, visualized
+- 🌐 **[Landing page](https://midhun1998.github.io/memlattice/)** — the pitch, visualized
 - 📐 **[Design document](docs/design.md)** — architecture, diagrams, and rationale
 - 🤝 **[Contributing](CONTRIBUTING.md)** — dev setup, tests, and PR flow
 - 📓 **[Changelog](CHANGELOG.md)**

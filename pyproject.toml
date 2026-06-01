@@ -26,9 +26,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/midhun1998/lattice"
-Issues = "https://github.com/midhun1998/lattice/issues"
-Documentation = "https://github.com/midhun1998/lattice#readme"
+Homepage = "https://github.com/midhun1998/memlattice"
+Issues = "https://github.com/midhun1998/memlattice/issues"
+Documentation = "https://github.com/midhun1998/memlattice#readme"
 
 [project.optional-dependencies]
 agentic = ["anthropic>=0.40"]
