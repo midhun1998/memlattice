@@ -2,25 +2,15 @@
 
 ## GitHub (public repo)
 
-The repo is sanitized for public push (no internal flow names).
+All examples in this repo are fabricated — no real service names.
 
 ```bash
 cd /path/to/lattice
 
 # Create the public repo on github.com first (web UI or `gh repo create`).
-git remote add origin git@github.com:midhun1998/lattice.git
+git remote add origin git@github.com:<you>/lattice.git
 git branch -M main
-
-# The global pre-commit hook will scan staged content. The repo is
-# already clean — push should succeed without overrides.
 git push -u origin main
-```
-
-If a future commit triggers the global secret/internal-data scan and
-the finding is a false positive, override one commit with:
-
-```bash
-LATTICE_HOOK_SKIP=1 git commit ...
 ```
 
 ## PyPI (memlattice)

@@ -56,10 +56,15 @@ Citation format: any factual claim about a named service / repo /
 endpoint must end with a citation token. Accepted forms:
 
 - `[file:path/to/file.py:42]`
-- `[jira:<saved-search-name>]`
 - `[doc:https://...]`
-- `[chat:#channel:YYYY-MM-DD]`
+- `[url:https://...]`
+- `[commit:<sha>]`
+- `[pr:<owner>/<repo>#<number>]`
 - `[conv:<person>:YYYY-MM-DD]`
+
+The default schemes are vendor-neutral. Add your own (e.g. `jira`,
+`linear`, `notion`, `confluence`) via `[citations] extra = [...]` in
+`config.toml` — they then become valid citation tokens.
 
 Lint flags claims that name a Proper-Noun-Service without a trailing
 citation in the same paragraph.
@@ -91,11 +96,11 @@ retrieval over the link graph:
 4. Emit a manifest the agent can paste / `Read` directly:
 
    ```
-   # lattice context for: "how does the spark job submit to payment-gateway?"
+   # lattice context for: "how does checkout settle a payment?"
    files: 3   tokens: 2140 / 4000
-   - flows/checkout.md#phase-c-spark-indexing-job  (1180 tokens)
-   - components/payment-gateway.md#1-endpoint                       (520 tokens)
-   - components/payment-gateway.md#3-rpcs-we-use                    (440 tokens)
+   - flows/checkout.md#phase-c-settlement              (1180 tokens)
+   - components/payment-gateway.md#1-endpoint          (520 tokens)
+   - components/payment-gateway.md#3-apis-we-use       (440 tokens)
    ```
 
    v0.2: optional embedding backend (sentence-transformers, or an MCP

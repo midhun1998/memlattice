@@ -73,8 +73,8 @@ created  flows/checkout.md (from _template.md)
 
 $ lattice lint
 flows/checkout.md: ✗ 3 named services without citations: PaymentGateway, Redis, OrderQueue
-flows/checkout.md: ✗ "Open questions" section missing
-components/job-runner.md:    ✓ ok
+flows/onboarding.md: ✗ "Open questions" section missing
+components/auth-service.md:    ✓ ok
 1 file with errors. exit 1.
 
 $ lattice stale --days 90

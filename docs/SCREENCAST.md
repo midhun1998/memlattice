@@ -76,7 +76,7 @@ related: []
 
 **Screen:**
 ```
-$ lattice context "how does the spark job submit to payment-gateway?"
+$ lattice context "how does checkout settle a payment?"
 --- flows/checkout.md (Phase C, ~1180 tok) ---
 …
 --- components/payment-gateway.md (sections 1-3, ~520 tok, link-hop) ---
