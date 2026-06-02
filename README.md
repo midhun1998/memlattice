@@ -55,7 +55,12 @@ pip install memlattice
 ```
 
 Requires Python 3.10+. The optional Claude-backed `digest` is `pip install
-"memlattice[agentic]"`. From source: `git clone … && pip install -e .`.
+"memlattice[agentic]"`. The optional local-embedding ranker for `context` is
+`pip install "memlattice[embeddings]"` (heavy — it pulls in
+sentence-transformers + torch + numpy, hundreds of MB; runs fully locally with
+no hosted API, no server, no spend; first use downloads model weights). Core
+stays dependency-light: without the extra, `context` silently uses BM25. From
+source: `git clone … && pip install -e .`.
 
 ## Quickstart
 
@@ -97,7 +102,7 @@ Then tell your agent, once:
 | `lattice lint` | Cited-fact checker, structure + token-budget guard |
 | `lattice link [--fix]` | Rebuild bidirectional `Referenced by` backlinks |
 | `lattice stale [--days N]` | List notes older than N days |
-| `lattice context <query> [--budget N] [--no-learn]` | Smallest relevant subgraph for a query (`--no-learn` = pure BM25, no outcome boost) |
+| `lattice context <query> [--budget N] [--no-learn] [--ranker auto\|bm25\|embeddings] [--explain-ranker]` | Smallest relevant subgraph for a query. `--ranker` picks the backend (`auto` = local embeddings iff the `[embeddings]` extra is installed, else BM25); `--explain-ranker` notes which ran on stderr (stdout manifest unchanged) |
 | `lattice used <slug> [<slug>...] [--bad]` | Record a local-only outcome so `context` ranks used notes slightly higher (`--bad` penalizes) |
 | `lattice cache [--build]` | Pre-render context manifests for offline use |
 | `lattice digest <history-file>` | Compress an unbounded session-history file |

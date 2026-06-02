@@ -116,6 +116,24 @@ file_warn = 6000
 file_max = 12000
 context_default = 4000
 
+# Retrieval ranking for `lattice context` (and the offline `lattice cache`).
+# `ranker` is a three-way switch, default "auto":
+#   auto       -> use the OPTIONAL local-embedding ranker iff its extra is
+#                 installed AND `ranker` here is not "bm25"; otherwise BM25.
+#   bm25       -> always the built-in BM25 path (no extra needed).
+#   embeddings -> force the local-embedding ranker; if the extra is not
+#                 installed it prints one notice and degrades to BM25 (never
+#                 errors). Install it with: pip install "memlattice[embeddings]".
+# The embedding ranker is fully local (no hosted API, no server, no spend).
+# `embedding_model` is a model id OR a local path (leave empty to use the
+# built-in default resolved by lattice). `embedding_cache` persists per-note
+# vectors under .lattice/cache/ (gitignored) so re-runs skip re-encoding.
+# `lattice context --ranker {auto|bm25|embeddings}` overrides per-invocation.
+[context]
+# ranker          = "auto"
+# embedding_model = ""
+# embedding_cache = true
+
 [lint]
 require_citations = true
 require_open_questions = true

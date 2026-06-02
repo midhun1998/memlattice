@@ -11,7 +11,7 @@ import click
 from . import __version__
 from . import templates as T
 from . import outcomes as _outcomes
-from .config import budgets, citation_regex, learn_config, load_config, note_types, run_hook, sources
+from .config import budgets, citation_regex, context_config, learn_config, load_config, note_types, run_hook, sources
 from .vault import (
     HEADING_RE,
     find_vault,
@@ -276,14 +276,62 @@ def doctor(days: int, strict: bool) -> None:
     run_hook(root, "doctor", args="ok")
 
 
-def _build_context(root: Path, query: str, budget: int, learn: bool = True) -> tuple[str, int, int]:
-    """Return (manifest_text, tokens_used, files_count).
+def _resolve_ranker(root: Path, requested: str) -> tuple[str, str]:
+    """Decide which ranker actually runs and why.
+
+    Returns (effective, reason) where effective is "embeddings" or "bm25" and
+    reason is a short human note for `--explain-ranker`. `requested` is one of
+    auto|bm25|embeddings (the CLI default is auto). The default-off posture:
+      - bm25       -> always the legacy path (regression-safe).
+      - auto       -> embeddings iff the extra imports AND `[context] ranker`
+                      is not "bm25"; else bm25.
+      - embeddings -> force; if the backend is unavailable, degrade to bm25
+                      with a one-line notice (never hard-errors).
+    The default-model literal is owned by embeddings.py; we only surface a
+    config-resolved id (which may be empty -> "default") for the note.
+    """
+    from . import embeddings as _emb
+
+    ccfg = context_config(root)
+    cfg_ranker = ccfg.get("ranker", "auto")
+    model_disp = ccfg.get("embedding_model") or "default"
+    available = _emb.backend_available()
+
+    if requested == "bm25":
+        return "bm25", "forced bm25"
+    if requested == "embeddings":
+        if available:
+            return "embeddings", f"forced embeddings (model={model_disp})"
+        return "bm25", "embeddings forced but extra not installed — falling back to bm25"
+    # auto
+    if cfg_ranker == "bm25":
+        return "bm25", "bm25 ([context] ranker = bm25)"
+    if available:
+        return "embeddings", f"embeddings (model={model_disp})"
+    return "bm25", "bm25 (embeddings extra not installed)"
+
+
+def _build_context(
+    root: Path,
+    query: str,
+    budget: int,
+    learn: bool = True,
+    ranker: str = "auto",
+) -> tuple[str, int, int, str]:
+    """Return (manifest_text, tokens_used, files_count, ranker_reason).
+
+    Ranking is BM25 by default. When the optional embeddings backend is chosen
+    (see `_resolve_ranker`) and succeeds, per-note BM25 scores are REPLACED by
+    cosine similarity over the SAME text BM25 indexes (slug + headings +
+    body[:2000]); if the backend returns None (missing extra, model failure) we
+    silently keep the BM25 scores. The manifest is byte-identical to the legacy
+    path for the bm25 / auto-without-extra cases — only the numeric value in the
+    unchanged `score=%.2f` column changes (cosine vs BM25) when embeddings run.
 
     When `learn` and `[learn].enabled`, a small, conservative, recency-decayed
-    multiplier from `.lattice/cache/outcomes.jsonl` is applied to each note's
-    BM25 score BEFORE ranking. It only scales notes that already matched
-    (score > 0), so it never resurrects a zero-BM25 note — the relevance gate
-    is preserved.
+    multiplier from `.lattice/cache/outcomes.jsonl` scales each note's score
+    BEFORE ranking. It only scales notes that already matched (score > 0), so it
+    never resurrects a zero-score note — the relevance gate is preserved.
     """
     notes = load_vault(root)
     try:
@@ -291,13 +339,34 @@ def _build_context(root: Path, query: str, budget: int, learn: bool = True) -> t
     except ImportError:
         raise click.ClickException("install `rank-bm25` for context retrieval")
     docs = []
+    doc_texts = []
     for n in notes:
         text = n.slug + " " + " ".join(t for _, t in n.headings) + " " + n.body[:2000]
+        doc_texts.append(text)
         docs.append(_tokenize(text))
+    effective, reason = _resolve_ranker(root, ranker)
     if not docs:
-        return f"# lattice context for: {query!r}\n# (vault empty)\n", 0, 0
+        return f"# lattice context for: {query!r}\n# (vault empty)\n", 0, 0, reason
     bm25 = BM25Okapi(docs)
-    scores = bm25.get_scores(_tokenize(query))
+    scores = list(bm25.get_scores(_tokenize(query)))
+    if effective == "embeddings":
+        from . import embeddings as _emb
+
+        ccfg = context_config(root)
+        sims = _emb.embedding_scores(
+            query,
+            doc_texts,
+            ccfg.get("embedding_model") or None,
+            vault=root,
+            use_cache=bool(ccfg.get("embedding_cache", True)),
+        )
+        if sims is not None and len(sims) == len(notes):
+            scores = sims
+        else:
+            # backend unavailable / failed mid-run -> silent BM25 fallback
+            effective = "bm25"
+            reason = reason + " (backend unavailable — fell back to bm25)" \
+                if "fall" not in reason else reason
     lcfg = learn_config(root)
     if learn and lcfg.get("enabled", True):
         mult = _outcomes.slug_multipliers(root, lcfg)
@@ -336,7 +405,7 @@ def _build_context(root: Path, query: str, budget: int, learn: bool = True) -> t
                 out.append(snip.strip())
                 out.append("")
     out.append(f"# total: ~{used} / {budget} tokens, {files} files")
-    return "\n".join(out), used, files
+    return "\n".join(out), used, files, reason
 
 
 @main.command()
@@ -344,11 +413,27 @@ def _build_context(root: Path, query: str, budget: int, learn: bool = True) -> t
 @click.option("--budget", default=4000, type=int, help="Max output tokens.")
 @click.option("--out", type=click.Path(dir_okay=False, path_type=Path), help="Write manifest to file (also passed to post-context hook).")
 @click.option("--no-learn", is_flag=True, help="Disable the outcome/recency rank boost (use pure BM25).")
-def context(query: str, budget: int, out: Path | None, no_learn: bool) -> None:
+@click.option(
+    "--ranker",
+    type=click.Choice(["auto", "bm25", "embeddings"]),
+    default="auto",
+    show_default=True,
+    help="Ranking backend. auto = local embeddings iff the optional extra is "
+    "installed and not disabled in config, else BM25. bm25 = force legacy. "
+    "embeddings = force; degrades to BM25 with a notice if the extra is absent.",
+)
+@click.option(
+    "--explain-ranker",
+    is_flag=True,
+    help="Print which ranker actually ran to stderr (stdout manifest unchanged).",
+)
+def context(query: str, budget: int, out: Path | None, no_learn: bool, ranker: str, explain_ranker: bool) -> None:
     """Return the smallest relevant subgraph for a query."""
     root = find_vault(Path.cwd()) or _abort_no_vault()
-    text, used, files = _build_context(root, query, budget, learn=not no_learn)
+    text, used, files, reason = _build_context(root, query, budget, learn=not no_learn, ranker=ranker)
     click.echo(text)
+    if explain_ranker:
+        _err(f"# ranker: {reason}")
     if out:
         out.write_text(text)
     run_hook(root, "context", args=query, output_file=out)
@@ -401,7 +486,9 @@ def cache(build: bool, budget: int) -> None:
     cache_dir.mkdir(parents=True, exist_ok=True)
     index_lines = ["# lattice offline cache", "", "| slug | query | tokens | files |", "|---|---|---|---|"]
     for slug, query in queries.items():
-        text, used, files = _build_context(root, query, budget)
+        # ranker defaults to "auto", which resolves through `[context] ranker`
+        # so cached manifests use the same path as a live `context` run.
+        text, used, files, _reason = _build_context(root, query, budget)
         path = cache_dir / f"{slug}.md"
         path.write_text(text)
         index_lines.append(f"| [{slug}]({path.relative_to(root)}) | {query} | {used} | {files} |")
