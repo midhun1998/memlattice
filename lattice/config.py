@@ -105,6 +105,43 @@ def learn_config(vault: Path | None) -> dict[str, Any]:
     return out
 
 
+# Defaults for the `[context]` table (retrieval-time ranking). `ranker` is the
+# THREE-WAY switch shared by the CLI: "auto" uses the optional local-embedding
+# ranker iff its extra is installed and ranker is not forced to "bm25"; "bm25"
+# forces the legacy path; "embeddings" forces the optional ranker (degrading to
+# BM25 with a notice if its backend is unavailable). `embedding_model` is left
+# empty here on purpose — the default model id is resolved inside
+# lattice/embeddings.py, never as a literal in core. `embedding_cache` persists
+# per-note vectors under .lattice/cache/ (mirrors agentic.py's cache).
+DEFAULT_CONTEXT: dict[str, Any] = {
+    "ranker": "auto",
+    "embedding_model": "",
+    "embedding_cache": True,
+}
+
+_VALID_RANKERS = ("auto", "bm25", "embeddings")
+
+
+def context_config(vault: Path | None) -> dict[str, Any]:
+    """Return the `[context]` config. Defaults overridden per-key by `[context]`
+    (config wins; unspecified keys keep their default). An unrecognised `ranker`
+    string falls back to the default so a typo can never error the read-only
+    `context` path."""
+    cfg = load_config(vault)
+    out = dict(DEFAULT_CONTEXT)
+    table = cfg.get("context") or {}
+    rk = table.get("ranker")
+    if isinstance(rk, str) and rk in _VALID_RANKERS:
+        out["ranker"] = rk
+    em = table.get("embedding_model")
+    if isinstance(em, str) and em:
+        out["embedding_model"] = em
+    ec = table.get("embedding_cache")
+    if isinstance(ec, bool):
+        out["embedding_cache"] = ec
+    return out
+
+
 def note_types(vault: Path | None) -> dict[str, str]:
     """Return type -> directory map. Defaults ∪ user `[types]` (config wins)."""
     cfg = load_config(vault)

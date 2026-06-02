@@ -32,6 +32,11 @@ Documentation = "https://github.com/midhun1998/memlattice#readme"
 
 [project.optional-dependencies]
 agentic = ["anthropic>=0.40"]
+# Optional local-embedding ranker for `lattice context` (see lattice/embeddings.py).
+# Heavy: sentence-transformers transitively pulls torch + numpy (hundreds of MB),
+# so it is STRICTLY an extra — never a core dependency. Core runs fine without it
+# (silent BM25 fallback). Install with `pip install "memlattice[embeddings]"`.
+embeddings = ["sentence-transformers>=2.2"]
 
 [project.scripts]
 lattice = "lattice.cli:main"
