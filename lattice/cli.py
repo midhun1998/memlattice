@@ -503,8 +503,20 @@ def cache(build: bool, budget: int) -> None:
 @click.option("--keep-recent", default=3, type=int)
 @click.option("--write", is_flag=True, help="Overwrite the input file with the digest.")
 @click.option("--no-cache", is_flag=True, help="Bypass agentic stub cache; force re-call.")
-def digest(history_file: Path, keep_recent: int, write: bool, no_cache: bool) -> None:
-    """Compress a .CLAUDE.HISTORY file. Sessions older than --keep-recent become 5-line stubs."""
+@click.option("--max-usd", default=None, type=float, help="One-shot daily cost ceiling for THIS run (overrides [budget] max_usd_per_day). Default 0 = never spend.")
+@click.option("--force-spend", is_flag=True, help="Bypass the cost ceiling for this run only (logged loudly). Use sparingly.")
+def digest(history_file: Path, keep_recent: int, write: bool, no_cache: bool, max_usd: float | None, force_spend: bool) -> None:
+    """Compress a .CLAUDE.HISTORY file. Sessions older than --keep-recent become 5-line stubs.
+
+    When ANTHROPIC_API_KEY is set, stubs can be drafted via Claude — but that
+    spend is gated by the cost circuit-breaker (`[budget] max_usd_per_day`,
+    default 0 = never spend). If the ceiling blocks the call, digest degrades to
+    its local heuristic (no error, no spend). Raise the cap, pass `--max-usd`,
+    or `--force-spend` to enable the Claude path.
+    """
+    from . import budget as _budget
+    from .config import budget_config
+
     root = find_vault(Path.cwd())
     archive_dir = (root / ".lattice/history/full") if root else (history_file.parent / ".lattice-history")
     archive_dir.mkdir(parents=True, exist_ok=True)
@@ -515,6 +527,36 @@ def digest(history_file: Path, keep_recent: int, write: bool, no_cache: bool) ->
         sys.exit(1)
     keep = sessions[-keep_recent:] if keep_recent > 0 else []
     archive = sessions[: -keep_recent] if keep_recent > 0 else sessions
+
+    # Cost circuit-breaker wiring. The ledger lives under the vault's cache; with
+    # no vault there is nowhere to account spend, so the Claude path is gated
+    # off (heuristic only). `pre_spend` is consulted BEFORE each Claude call.
+    bcfg = budget_config(root)
+    ceiling = max_usd if max_usd is not None else bcfg["max_usd_per_day"]
+    est = bcfg["estimated_usd_per_digest"]
+    blocked_notice_shown = {"v": False}
+
+    def _pre_spend() -> bool:
+        if root is None:
+            return False
+        decision = _budget.check(root, est_cost=est, max_usd_per_day=ceiling, force=force_spend)
+        if not decision.allow:
+            if not blocked_notice_shown["v"]:
+                click.echo(click.style(decision.reason, fg="yellow"), err=True)
+                click.echo(click.style("using local heuristic for digest stubs (no spend).", fg="yellow"), err=True)
+                blocked_notice_shown["v"] = True
+            return False
+        if force_spend:
+            click.echo(click.style(f"--force-spend: bypassing cost ceiling (~${est:.4f}/call)", fg="yellow"), err=True)
+        return True
+
+    def _record() -> None:
+        if root is not None:
+            _budget.record(root, est)
+
+    pre = _pre_spend if root is not None else None
+    post = _record if root is not None else None
+
     out_lines = [
         "# .CLAUDE.HISTORY (digested by lattice)",
         f"# kept verbatim: last {len(keep)} session(s)",
@@ -526,7 +568,7 @@ def digest(history_file: Path, keep_recent: int, write: bool, no_cache: bool) ->
         full_path = archive_dir / f"{slug}.md"
         full_path.write_text(f"# {header}\n\n{body}")
         out_lines.append(f"- **{header}** -> [full]({full_path}) — _stub_:")
-        out_lines.append(_stub(body, vault=root, use_cache=not no_cache))
+        out_lines.append(_stub(body, vault=root, use_cache=not no_cache, pre_spend=pre, post_spend=post))
         out_lines.append("")
     out_lines.append("\n---\n")
     for header, body in keep:
@@ -547,6 +589,89 @@ def digest(history_file: Path, keep_recent: int, write: bool, no_cache: bool) ->
         click.echo("\n--- preview (first 60 lines) ---")
         click.echo("\n".join(digested.splitlines()[:60]))
         click.echo("\nrun with --write to persist")
+
+
+@main.command()
+@click.option("--cron", "flavor_cron", is_flag=True, help="Emit a crontab snippet (default off platforms).")
+@click.option("--launchd", "flavor_launchd", is_flag=True, help="Emit a launchd plist snippet (default on macOS).")
+@click.option("--command", "subcommand", default=None, help="Subcommand to schedule (default from [schedule] command, else 'refresh').")
+@click.option("--at", default=None, help="Daily run time HH:MM (default from [schedule] at, else 03:00).")
+@click.option("--every", "every", default=None, help="Run every N hours instead of a fixed time, e.g. 6h.")
+def schedule(flavor_cron: bool, flavor_launchd: bool, subcommand: str | None, at: str | None, every: str | None) -> None:
+    """Print a ready-to-paste cron/launchd snippet for periodic lattice runs.
+
+    lattice ships NO daemon and NEVER installs anything: this only prints a
+    snippet to stdout. You copy it and install it yourself. The scheduled
+    command is config-driven (`[schedule] command`), and the snippet reminds you
+    that the job still obeys `[budget] max_usd_per_day` — so an unattended job
+    can never silently spend (default ceiling 0 = no spend).
+    """
+    import sys as _sys
+
+    from . import schedule as _sched
+    from .config import schedule_config
+
+    root = find_vault(Path.cwd()) or _abort_no_vault()
+    scfg = schedule_config(root)
+
+    cmd = subcommand or scfg["command"]
+    run_at = at or scfg["at"]
+
+    # parse --every (accepts "6h" or "6")
+    every_hours: int | None = scfg["every_hours"] or None
+    if every is not None:
+        try:
+            every_hours = int(every.rstrip("hH"))
+        except ValueError:
+            _err(f"invalid --every value: {every!r} (expected e.g. 6h)")
+            _sys.exit(2)
+
+    # flavor: explicit flags win; else config; else auto by platform.
+    if flavor_cron and flavor_launchd:
+        _err("--cron and --launchd are mutually exclusive")
+        _sys.exit(2)
+    if flavor_cron:
+        flavor = "cron"
+    elif flavor_launchd:
+        flavor = "launchd"
+    elif scfg["flavor"]:
+        flavor = scfg["flavor"]
+    else:
+        flavor = "launchd" if _sys.platform == "darwin" else "cron"
+
+    if flavor == "launchd":
+        snippet = _sched.render_launchd(root, cmd, at=run_at, every_hours=every_hours)
+    else:
+        snippet = _sched.render_cron(root, cmd, at=run_at, every_hours=every_hours)
+
+    click.echo(snippet)
+    run_hook(root, "schedule", args=flavor)
+
+
+@main.command(name="budget")
+def budget_status() -> None:
+    """Show today's local spend vs the configured cost ceiling (read-only).
+
+    Reads the pure-local ledger under .lattice/cache/; spends nothing, calls no
+    API. With the default ceiling 0 this confirms the Claude path is gated off.
+    """
+    from . import budget as _budget
+    from .config import budget_config
+
+    root = find_vault(Path.cwd()) or _abort_no_vault()
+    bcfg = budget_config(root)
+    ceiling = bcfg["max_usd_per_day"]
+    spent = _budget.spent_today(root)
+    est = bcfg["estimated_usd_per_digest"]
+    today = _budget._today()
+    if ceiling <= 0:
+        click.echo(f"budget {today}: spent ${spent:.4f} — ceiling $0.00/day (never spend; Claude path OFF)")
+        click.echo("raise [budget] max_usd_per_day to enable spending.")
+    else:
+        remaining = max(ceiling - spent, 0.0)
+        click.echo(f"budget {today}: spent ${spent:.4f} / ${ceiling:.2f}/day  (remaining ${remaining:.4f})")
+        click.echo(f"estimated cost per digest call: ${est:.4f}")
+    run_hook(root, "budget", args=f"{spent:.4f}/{ceiling:.2f}")
 
 
 @main.command()
@@ -852,14 +977,21 @@ def _split_sessions(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def _stub(body: str, vault: Path | None = None, use_cache: bool = True) -> str:
+def _stub(
+    body: str,
+    vault: Path | None = None,
+    use_cache: bool = True,
+    pre_spend=None,
+    post_spend=None,
+) -> str:
     """Compress a session body to 5 bullets.
 
     Tries Claude API first (set ANTHROPIC_API_KEY); falls back to a cheap
-    heuristic when the API is unavailable.
+    heuristic when the API is unavailable OR when the cost circuit-breaker
+    (`pre_spend`) blocks the call.
     """
     from .agentic import agentic_stub
-    out = agentic_stub(body, vault=vault, use_cache=use_cache)
+    out = agentic_stub(body, vault=vault, use_cache=use_cache, pre_spend=pre_spend, post_spend=post_spend)
     if out:
         return out
     lines = [l.strip() for l in body.splitlines() if l.strip()]

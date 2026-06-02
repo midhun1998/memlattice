@@ -4,9 +4,19 @@ from __future__ import annotations
 import json
 import os
 import textwrap
+from typing import Callable, Optional
 from pathlib import Path
 
 CACHE_FILE_NAME = "agentic-stub-cache.json"
+
+# Optional spend-gating seam. `pre_spend` is consulted BEFORE the Claude client
+# is constructed: it returns True to allow the call, False to block it (the
+# caller degrades to the heuristic). `post_spend` is invoked AFTER a successful
+# call so the local budget ledger can record the estimated cost. Both default to
+# None (no gating) so this module stays usable standalone; the CLI injects the
+# circuit-breaker. The client is NEVER constructed when pre_spend returns False.
+PreSpend = Optional[Callable[[], bool]]
+PostSpend = Optional[Callable[[], None]]
 
 
 def _cache_path(vault: Path | None) -> Path | None:
@@ -61,10 +71,41 @@ PROMPT = textwrap.dedent("""\
 """)
 
 
-def agentic_stub(body: str, vault: Path | None = None, use_cache: bool = True) -> str | None:
+# Module-level handle so callers/tests can patch `agentic.Anthropic`. Resolved
+# lazily inside _make_client so the optional `anthropic` dep stays guarded and
+# absent installs degrade gracefully.
+Anthropic = None  # type: ignore[assignment]
+
+
+def _make_client(key: str):
+    """Construct the Claude client, honoring a monkeypatched module-level
+    `Anthropic` if one is set; otherwise lazily import the real SDK. Returns
+    None when the SDK is unavailable. The construction is the actual spend
+    trigger — gating MUST happen before this is called."""
+    cls = globals().get("Anthropic")
+    if cls is None:
+        try:
+            from anthropic import Anthropic as cls  # type: ignore
+        except ImportError:
+            return None
+    return cls(api_key=key)
+
+
+def agentic_stub(
+    body: str,
+    vault: Path | None = None,
+    use_cache: bool = True,
+    pre_spend: PreSpend = None,
+    post_spend: PostSpend = None,
+) -> str | None:
     """Return a 5-line stub via Claude API, or None if unavailable.
 
     Caches by content hash unless use_cache=False. Reads ANTHROPIC_API_KEY.
+
+    Spend gating: if `pre_spend` is provided and returns False, the Claude
+    client is NEVER constructed and None is returned (caller degrades). A cache
+    hit costs nothing, so it is served regardless of the gate. After a
+    successful, validated call, `post_spend` (if any) records the spend.
     """
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
@@ -73,12 +114,14 @@ def agentic_stub(body: str, vault: Path | None = None, use_cache: bool = True) -
     h = _hash(body)
     if use_cache and h in cache:
         return cache[h]
-    try:
-        from anthropic import Anthropic
-    except ImportError:
+    # Consult the cost circuit-breaker BEFORE any spend. A False decision means
+    # we must not construct the client — degrade silently to the heuristic.
+    if pre_spend is not None and not pre_spend():
         return None
     try:
-        client = Anthropic(api_key=key)
+        client = _make_client(key)
+        if client is None:
+            return None
         msg = client.messages.create(
             model=os.environ.get("LATTICE_DIGEST_MODEL", "claude-haiku-4-5-20251001"),
             max_tokens=400,
@@ -92,6 +135,8 @@ def agentic_stub(body: str, vault: Path | None = None, use_cache: bool = True) -
     lines = [l for l in text.splitlines() if l.strip().startswith("- **")]
     if len(lines) < 5:
         return None
+    if post_spend is not None:
+        post_spend()
     out = "\n".join(f"  {l}" for l in lines[:5])
     if use_cache:
         cache[h] = out
