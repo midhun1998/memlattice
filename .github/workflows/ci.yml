@@ -79,3 +79,23 @@ jobs:
           # a fresh scaffold may carry template TODOs; don't fail the smoke run on lint
           lattice lint || true
           lattice context "how does checkout settle" --budget 2000
+
+  embeddings:
+    name: tests with embeddings extra
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install with the embeddings extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[embeddings]"
+          pip install pytest
+
+      - name: Run tests (exercises the real embedding-ranking path)
+        run: pytest -q
