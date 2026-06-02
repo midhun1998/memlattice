@@ -163,6 +163,34 @@ half_life_days = 30    # outcome weight = 0.5 ** (age_days / half_life_days)
 [citations]
 # extra = ["jira", "confluence"]
 
+# Cost circuit-breaker. The ONLY LLM-spending path (digest via the Claude
+# route; the future refresh) consults this BEFORE spending and degrades to its
+# local heuristic if the next call would exceed the ceiling. `max_usd_per_day`
+# defaults to 0 = "never spend without an explicit override" — so even with
+# ANTHROPIC_API_KEY set, the Claude path is OFF until you raise this cap (or pass
+# `digest --max-usd` / `--force-spend`). NOTE: this is a safe-by-default change —
+# existing users with a key set will silently fall back to the heuristic until a
+# non-zero cap is set. `estimated_usd_per_digest` is YOUR local estimate per
+# Claude digest call (lattice has no live billing API and bakes in no vendor
+# price); the breaker uses it to project the day's spend. Accounting is purely
+# local in .lattice/cache/budget-ledger.json (gitignored); nothing is sent out.
+[budget]
+max_usd_per_day = 0          # 0 = never spend; raise to enable the Claude path
+# estimated_usd_per_digest = 0.002
+
+# Scheduler HINT. `lattice schedule` PRINTS a ready-to-paste cron/launchd
+# snippet you install YOURSELF — lattice ships no daemon and never runs on a
+# timer by itself. `command` is the subcommand the snippet schedules (config-
+# driven so nothing is hardcoded). `at` is a daily HH:MM; set `every_hours` for
+# an interval cadence instead. `flavor` forces cron|launchd (default: auto by
+# platform). The printed snippet reminds you the job still obeys [budget]
+# max_usd_per_day, so an unattended job can never silently spend.
+[schedule]
+# command     = "refresh"
+# at          = "03:00"
+# every_hours = 6
+# flavor      = "cron"
+
 # Source adapters for `lattice refresh` (explicit, opt-in, default OFF).
 # `lattice refresh` only runs when you type it — there is no scheduler/daemon.
 # With NO entries below it is a no-op. Each entry names an adapter and its
@@ -197,7 +225,8 @@ half_life_days = 30    # outcome weight = 0.5 ** (age_days / half_life_days)
 # Run scripts after a lattice command finishes successfully.
 # Available events: post-init, post-new, post-link, post-lint, post-stale,
 #                   post-context, post-digest, post-cache, post-doctor,
-#                   post-used, post-refresh, post-inbox, post-promote.
+#                   post-used, post-refresh, post-inbox, post-promote,
+#                   post-schedule, post-budget.
 # Each entry is a shell command. Working dir = vault root.
 # Useful env vars passed in:
 #   LATTICE_VAULT, LATTICE_EVENT, LATTICE_ARGS,

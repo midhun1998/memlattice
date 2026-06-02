@@ -184,6 +184,70 @@ def refresh_config(vault: Path | None) -> dict[str, Any]:
     return out
 
 
+# Defaults for the `[budget]` cost circuit-breaker. `max_usd_per_day` defaults
+# to 0 = "never spend without an explicit override" — the safe default that
+# gates the Claude path off even when an API key is present.
+# `estimated_usd_per_digest` is a USER-SET, generic local estimate (lattice has
+# no live billing API and must never bake in a vendor price); the breaker uses
+# it to project spend before a Claude digest call.
+DEFAULT_BUDGET: dict[str, float] = {
+    "max_usd_per_day": 0.0,
+    "estimated_usd_per_digest": 0.002,
+}
+
+
+def budget_config(vault: Path | None) -> dict[str, float]:
+    """Return the `[budget]` config. Defaults overridden per-key by `[budget]`
+    (config wins; unspecified keys keep their default). Negative ceilings are
+    clamped to 0 so a stray minus sign still means 'never spend'."""
+    cfg = load_config(vault)
+    out = dict(DEFAULT_BUDGET)
+    table = cfg.get("budget") or {}
+    for key in out:
+        val = table.get(key)
+        if isinstance(val, (int, float)) and not isinstance(val, bool):
+            out[key] = float(val)
+    if out["max_usd_per_day"] < 0:
+        out["max_usd_per_day"] = 0.0
+    if out["estimated_usd_per_digest"] < 0:
+        out["estimated_usd_per_digest"] = 0.0
+    return out
+
+
+# Defaults for the `[schedule]` snippet hint. `command` is config-driven so no
+# vendor/tool name is hardcoded in core. `flavor` empty => auto by platform.
+DEFAULT_SCHEDULE: dict[str, Any] = {
+    "command": "refresh",
+    "at": "03:00",
+    "every_hours": 0,
+    "flavor": "",
+}
+
+_VALID_FLAVORS = ("cron", "launchd")
+
+
+def schedule_config(vault: Path | None) -> dict[str, Any]:
+    """Return the `[schedule]` config used by `lattice schedule` to pre-fill the
+    snippet. Defaults overridden per-key by `[schedule]` (config wins). An
+    unrecognised `flavor` is ignored (auto-detect by platform downstream)."""
+    cfg = load_config(vault)
+    out = dict(DEFAULT_SCHEDULE)
+    table = cfg.get("schedule") or {}
+    cmd = table.get("command")
+    if isinstance(cmd, str) and cmd:
+        out["command"] = cmd
+    at = table.get("at")
+    if isinstance(at, str) and at:
+        out["at"] = at
+    eh = table.get("every_hours")
+    if isinstance(eh, int) and not isinstance(eh, bool) and eh > 0:
+        out["every_hours"] = eh
+    fl = table.get("flavor")
+    if isinstance(fl, str) and fl in _VALID_FLAVORS:
+        out["flavor"] = fl
+    return out
+
+
 def inbox_dir(vault: Path | None) -> str:
     """Return the inbox directory NAME (single source of truth).
 
