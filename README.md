@@ -110,6 +110,17 @@ Then tell your agent, once:
 | `lattice refresh [-s NAME] [--since REF] [--limit N] [--no-distill] [--dry-run] [--no-cache]` | Run configured source adapters and draft **uncited** candidate stubs into `_inbox/` for review (opt-in, default-off) |
 | `lattice inbox` | List pending **uncited** drafts in the review-gate inbox dir (read-only; empty inbox is not an error) |
 | `lattice promote <draft> [--type TYPE] [--slug SLUG] [--keep] [--force]` | Move an inbox draft into a real category dir as a templated note that **still** must earn citations to pass `lint` |
+| `lattice schedule [--cron\|--launchd] [--at HH:MM] [--every Nh]` | Print a ready-to-paste cron/launchd snippet for periodic `refresh`/`digest` — lattice installs no daemon; you install it yourself |
+| `lattice budget` | Show today's local spend vs the `[budget] max_usd_per_day` ceiling (default `0` = never spend) |
+
+## Spending & scheduling — safe by default
+
+Every path that could call an LLM (the optional Claude-backed `digest`, and
+distillation in `refresh`) is gated by a **cost circuit-breaker**:
+`[budget] max_usd_per_day` in `config.toml`, which **defaults to `0` — lattice
+never spends a cent without an explicit override**. `lattice schedule` only
+*prints* a cron/launchd snippet for you to install; nothing runs unattended on
+its own, and any job you schedule still obeys the same budget cap.
 
 ## The five opinions
 

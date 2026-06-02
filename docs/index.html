@@ -159,6 +159,23 @@
   .minidot{fill:var(--faint);transition:fill .4s,r .4s}
   .minidot.on{fill:var(--cyan)}
 
+  /* ---------- self-building flow (refresh -> inbox -> promote) ---------- */
+  .flow{display:flex;align-items:stretch;gap:14px;margin-top:54px;flex-wrap:nowrap}
+  .fstep{flex:1;border:1px solid var(--line);border-radius:16px;padding:22px;background:var(--surface);
+    opacity:0;transform:translateY(18px);transition:opacity .6s var(--ease),transform .6s var(--ease),border-color .4s}
+  .fstep.on{opacity:1;transform:none}
+  .fstep .fhead{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:12px;font-weight:700}
+  .fstep .fbody{color:var(--muted);font-size:13.8px;line-height:1.5}
+  .fstep .kbd{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);
+    background:rgba(34,211,238,.07);padding:2px 8px;border-radius:6px;border:1px solid var(--line-2)}
+  .fstep[data-s="2"]{border-color:rgba(52,211,153,.32)}
+  .pill{font-size:10.5px;font-family:'JetBrains Mono',monospace;padding:2px 7px;border-radius:6px}
+  .pill.x{background:rgba(251,113,133,.12);color:var(--danger)}
+  .farrow{display:flex;align-items:center;color:var(--faint);opacity:0;transform:scale(.6);
+    transition:opacity .5s var(--ease),transform .5s var(--ease),color .4s}
+  .farrow.on{opacity:1;transform:none;color:var(--cyan)}
+  @media(max-width:780px){.flow{flex-direction:column}.farrow{transform:rotate(90deg) scale(.6);align-self:center}.farrow.on{transform:rotate(90deg)}}
+
   /* ---------- features grid (bento) ---------- */
   .bento{display:grid;grid-template-columns:repeat(6,1fr);gap:18px;margin-top:56px}
   .bento .b{border:1px solid var(--line);border-radius:16px;padding:26px;background:var(--surface);
@@ -218,6 +235,7 @@
   @media (prefers-reduced-motion:reduce){
     *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
     .reveal{opacity:1;transform:none}
+    .fstep,.farrow{opacity:1;transform:none}
     #graph{opacity:.3}
   }
 </style>
@@ -372,7 +390,7 @@
   <div class="inner">
     <span class="eyebrow reveal">The toolbox</span>
     <h2 class="reveal" data-d="1">Small surface. <span class="grad-text">Sharp edges.</span></h2>
-    <p class="lead reveal" data-d="2">Eight commands. Everything is plain markdown underneath — adapt it to any system, any team, any agent.</p>
+    <p class="lead reveal" data-d="2">Fifteen commands, one plain-markdown vault underneath — adapt it to any system, any team, any agent.</p>
     <div class="bento">
       <div class="b span3 reveal" data-d="1">
         <h3><span class="kbd">lattice lint</span></h3>
@@ -394,11 +412,59 @@
         <h3><span class="kbd">lattice digest</span></h3>
         <p>Compresses an unbounded session history into a re-loadable index. ~80% smaller.</p>
       </div>
+      <div class="b span2 reveal" data-d="1">
+        <h3><span class="kbd">lattice doctor</span></h3>
+        <p>One-command health check: note count, tokens, stale, orphans, budget breaches, lint status. Exits non-zero on real problems.</p>
+      </div>
+      <div class="b span2 reveal" data-d="2">
+        <h3><span class="kbd">lattice used</span></h3>
+        <p>Tell it which notes actually helped; <code>context</code> learns and ranks them higher. Fully local — no telemetry ever leaves your machine.</p>
+      </div>
+      <div class="b span2 reveal" data-d="3">
+        <h3><span class="kbd">lattice refresh</span></h3>
+        <p>Pluggable source adapters draft candidate notes from your activity. Built-in git adapter, zero network. Opt-in, review-gated.</p>
+      </div>
+      <div class="b span3 reveal" data-d="1">
+        <h3><span class="kbd">memlattice[embeddings]</span></h3>
+        <p>Want semantic ranking? Install the optional extra and <code>context</code> uses a <em>local</em> embedding model — no API, no server. Not installed? It silently falls back to BM25. The core stays dependency-light either way.</p>
+      </div>
+      <div class="b span3 reveal" data-d="2">
+        <h3><span class="kbd">lattice schedule</span> · <span class="kbd">lattice budget</span></h3>
+        <p>No daemon — <code>schedule</code> prints a cron/launchd snippet you install yourself. A <code>[budget] max_usd_per_day</code> cost circuit-breaker guards every LLM path and defaults to <strong>$0 — never spends without your explicit override</strong>.</p>
+      </div>
       <div class="b span6 reveal" data-d="1">
         <h3>Config-driven, for <span class="grad-text" style="-webkit-text-fill-color:transparent">any system you use</span></h3>
         <p>Citation schemes and note types are yours to define. Ship with vendor-neutral defaults (<span class="kbd">file</span> <span class="kbd">doc</span> <span class="kbd">url</span> <span class="kbd">commit</span> <span class="kbd">pr</span>) and add your own — <span class="kbd">jira</span>, <span class="kbd">linear</span>, <span class="kbd">notion</span> — in one line of <code>config.toml</code>. No vendor is baked into the core. Tool-agnostic by design: Claude Code, Cursor, Windsurf, Aider, Continue all read the same files.</p>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- SELF-BUILDING / REVIEW GATE -->
+<section id="capture">
+  <div class="inner">
+    <span class="eyebrow reveal">Self-building, safely</span>
+    <h2 class="reveal" data-d="1">Memory that writes itself —<br><span class="grad-text">but never without your sign-off.</span></h2>
+    <p class="lead reveal" data-d="2">Source adapters draft notes from your activity, but a draft is <em>uncited</em> and lands in a review gate. It cannot reach your verified corpus until you promote it — and even then it still has to earn its citations.</p>
+
+    <div class="flow reveal" data-d="2" id="captureflow" aria-hidden="true">
+      <div class="fstep" data-s="0">
+        <div class="fhead"><span class="kbd">lattice refresh</span></div>
+        <div class="fbody">git adapter scans new commits<br><span class="c-dim">→ drafts a candidate note</span></div>
+      </div>
+      <div class="farrow" data-s="0"><svg viewBox="0 0 48 24" width="48" height="24" aria-hidden="true"><path d="M2 12h40m0 0l-7-6m7 6l-7 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="fstep" data-s="1">
+        <div class="fhead"><span class="kbd">_inbox/</span> <span class="pill x">uncited</span></div>
+        <div class="fbody">excluded from the verified scan<br><span class="c-dim">lint &amp; context never see it</span></div>
+      </div>
+      <div class="farrow" data-s="1"><svg viewBox="0 0 48 24" width="48" height="24" aria-hidden="true"><path d="M2 12h40m0 0l-7-6m7 6l-7 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="fstep" data-s="2">
+        <div class="fhead"><span class="kbd">lattice promote</span></div>
+        <div class="fbody">you review &amp; move it into a note<br><span class="c-ok">→ still must pass the citation gate</span></div>
+      </div>
+    </div>
+
+    <p class="lead reveal" data-d="3" style="margin-top:34px">Nothing runs unattended: <code>refresh</code> is explicit, and the only paths that can spend money are guarded by a <code>[budget]</code> ceiling that defaults to <strong>zero</strong>. Silence is never green.</p>
   </div>
 </section>
 
@@ -570,11 +636,22 @@
     seq.forEach(function(i,k){ setTimeout(function(){ if(dots[i])dots[i].classList.add('on'); },k*220); });
     edges.forEach(function(e,k){ setTimeout(function(){ e.classList.add('on'); }, 500+k*240); });
   }
-  function watch(id,fn){ var el=document.getElementById(id);
+  /* ---- explainer 4: self-building flow (refresh -> inbox -> promote) ---- */
+  var captureRun=false;
+  function playCapture(){
+    if(captureRun) return; captureRun=true;
+    var steps=document.querySelectorAll('#captureflow .fstep'),
+        arrows=document.querySelectorAll('#captureflow .farrow');
+    if(reduce){ steps.forEach(function(s){s.classList.add('on');}); arrows.forEach(function(a){a.classList.add('on');}); return; }
+    // reveal step, then its outgoing arrow, then next step — sequenced like a pipeline
+    steps.forEach(function(s,k){ setTimeout(function(){ s.classList.add('on'); },k*520); });
+    arrows.forEach(function(a,k){ setTimeout(function(){ a.classList.add('on'); }, 300+k*520); });
+  }
+  function watch(id,fn){ var el=document.getElementById(id); if(!el) return;
     var o=new IntersectionObserver(function(es){ es.forEach(function(e){ if(e.isIntersecting){ fn(); o.disconnect(); } }); },{threshold:.5});
     o.observe(el);
   }
-  watch('lintstage',playLint); watch('ctxstage',playCtx); watch('graphstage',playGraph);
+  watch('lintstage',playLint); watch('ctxstage',playCtx); watch('graphstage',playGraph); watch('captureflow',playCapture);
 
   /* ---- ambient knowledge-graph canvas ---- */
   var cv=document.getElementById('graph'), ctx=cv.getContext('2d'), W,H,nodes,DPR;
