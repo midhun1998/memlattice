@@ -1,4 +1,4 @@
-"""P1-D — review-gated draft inbox: `lattice inbox` + `lattice promote`.
+"""Review-gated draft inbox: `lattice inbox` + `lattice promote`.
 
 `_inbox/` is the review gate between adapter output (`lattice refresh`) and the
 verified corpus. `lattice inbox` lists pending uncited drafts (read-only).

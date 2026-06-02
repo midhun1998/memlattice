@@ -1,7 +1,7 @@
 """Cost circuit-breaker — a pure-local, per-day USD ledger.
 
-memgram's most important lesson: unattended spend needs a hard cap, and silence
-is never green. lattice has no live billing API, so the breaker projects spend
+The guiding principle: unattended spend needs a hard cap, and silence is never
+green. lattice has no live billing API, so the breaker projects spend
 from a config-driven per-call ESTIMATE (never a baked-in vendor price) and
 consults a local JSON ledger BEFORE any spend on the only LLM-spending path
 (`digest` via the Claude route; the future `refresh` will call the same seam).

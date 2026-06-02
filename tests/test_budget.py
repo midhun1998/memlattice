@@ -1,6 +1,6 @@
-"""P3-G — cost circuit-breaker (`[budget] max_usd_per_day`, default 0).
+"""Cost circuit-breaker (`[budget] max_usd_per_day`, default 0).
 
-memgram's lesson: unattended spend needs a hard cap, and silence is never
+Guiding principle: unattended spend needs a hard cap, and silence is never
 green. The breaker is a pure-local, per-day USD ledger consulted BEFORE any
 spend on the only LLM-spending path (`digest` via the Claude/agentic route).
 Default ceiling 0 means the Claude path is off-by-default; `digest` silently
