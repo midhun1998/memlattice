@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 
 from .config import citation_regex as _citation_regex
+from .config import inbox_dir as _inbox_dir
 
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 WIKILINK_RE = re.compile(r"\[\[([^\]\|#]+)(?:#[^\]\|]+)?(?:\|[^\]]+)?\]\]")
@@ -77,10 +78,16 @@ def load_vault(root: Path) -> list[Note]:
     Auto-discovers category dirs (components/, flows/, api/, queries/,
     ideas/, ...) so adding a new category needs no code change. Files and
     dirs starting with `_` or `.` are skipped, as are _SKIP_DIRS.
+
+    The inbox dir (default `_inbox`) is the review-gate quarantine for
+    uncited drafts, NOT verified knowledge, so it is always excluded — even
+    when a user renames it without an underscore prefix via `[inbox] dir`
+    (resolved through config.inbox_dir, the single source of truth).
     """
     notes = []
+    inbox = _inbox_dir(root)
     for d in sorted(p for p in root.iterdir() if p.is_dir()):
-        if d.name in _SKIP_DIRS or d.name.startswith((".", "_")):
+        if d.name in _SKIP_DIRS or d.name == inbox or d.name.startswith((".", "_")):
             continue
         for p in sorted(d.glob("*.md")):
             if p.name.startswith("_"):

@@ -161,16 +161,25 @@ half_life_days = 30    # outcome weight = 0.5 ** (age_days / half_life_days)
 
 # Refresh behaviour. `distill` toggles the optional Claude distillation (no-ops
 # without ANTHROPIC_API_KEY); `limit` caps drafted items per source to bound
-# cost / inbox spam; `inbox_dir` renames the review directory.
+# cost / inbox spam.
 [refresh]
 # distill   = true
 # limit     = 50
-# inbox_dir = "_inbox"
+
+# Review-gated draft inbox. `lattice refresh` drops UNCITED stubs here; review
+# them with `lattice inbox` and `lattice promote <draft> --type <type>` to turn
+# one into a real templated note (which STILL must earn citations to pass lint).
+# `dir` is the single source of truth for the inbox directory name and is always
+# excluded from the verified-corpus scan (lint/context/link/stale), even if you
+# rename it without a leading underscore. Left fully commented so the default is
+# the built-in "_inbox"; uncomment the whole block to relocate the gate.
+# [inbox]
+# dir = "_inbox"
 
 # Run scripts after a lattice command finishes successfully.
 # Available events: post-init, post-new, post-link, post-lint, post-stale,
 #                   post-context, post-digest, post-cache, post-doctor,
-#                   post-used, post-refresh.
+#                   post-used, post-refresh, post-inbox, post-promote.
 # Each entry is a shell command. Working dir = vault root.
 # Useful env vars passed in:
 #   LATTICE_VAULT, LATTICE_EVENT, LATTICE_ARGS,

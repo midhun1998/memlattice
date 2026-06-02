@@ -103,6 +103,8 @@ Then tell your agent, once:
 | `lattice digest <history-file>` | Compress an unbounded session-history file |
 | `lattice doctor [--days N] [--strict]` | Read-only vault health summary (counts, stale, orphans, budgets, lint); exits non-zero on hard problems |
 | `lattice refresh [-s NAME] [--since REF] [--limit N] [--no-distill] [--dry-run] [--no-cache]` | Run configured source adapters and draft **uncited** candidate stubs into `_inbox/` for review (opt-in, default-off) |
+| `lattice inbox` | List pending **uncited** drafts in the review-gate inbox dir (read-only; empty inbox is not an error) |
+| `lattice promote <draft> [--type TYPE] [--slug SLUG] [--keep] [--force]` | Move an inbox draft into a real category dir as a templated note that **still** must earn citations to pass `lint` |
 
 ## The five opinions
 
@@ -196,6 +198,38 @@ so proprietary/internal sources stay out of this OSS tree and bring their own
 dependencies. Installing a third-party adapter runs its code; a broken one is
 skipped with a warning rather than aborting the run.
 
+## Reviewing the inbox: `lattice inbox` & `lattice promote`
+
+`_inbox/` is the review gate between adapter output and the verified corpus.
+Two manual, side-effect-light commands work it — no scheduler, no network, no
+LLM, no spend:
+
+```bash
+$ lattice inbox                                   # read-only list of pending drafts
+2 pending draft(s) in _inbox/:
+  add-checkout-settlement-step  ~  84t  [?]  add checkout settlement step
+  payment-gateway-retry          ~  72t  [?]  payment gateway retry policy
+
+$ lattice promote add-checkout-settlement-step --type flow
+promoted to flows/add-checkout-settlement-step.md; add citations then run `lattice lint`
+```
+
+- `promote` builds a real templated note (same skeleton as `lattice new`) and
+  carries the draft text in as clearly-**uncited scratch** under `## Open
+  questions`. The promoted note therefore **still fails `lattice lint`** until a
+  human verifies each claim, adds a citation token, and moves it into the body —
+  promotion can never launder an uncited claim into the verified corpus.
+- It is a **move** by default (the draft is consumed); `--keep` leaves the
+  original. `--type` is inferred from the draft frontmatter when it names a
+  configured note type, else it is required (never silently guessed). `--slug`
+  overrides the filename stem; an existing target is refused unless `--force`.
+- The draft identifier is resolved **inside the inbox dir only** — path
+  traversal / arbitrary-path args are rejected, so `promote` can never move a
+  file from outside the gate.
+- The inbox dir name is config-driven (`[inbox] dir`, default `_inbox`) and is
+  always excluded from `lint` / `context` / `link` / `stale`, even if renamed
+  without a leading underscore.
+
 ## Documentation
 
 - 🌐 **[Landing page](https://midhun1998.github.io/memlattice/)** — the pitch, visualized
@@ -206,10 +240,11 @@ skipped with a warning rather than aborting the run.
 ## Status
 
 **v0.1.** `init`, `new`, `link`, `lint`, `stale`, `context`, `cache`,
-`digest`, `doctor`, and `refresh` (pluggable source adapters + built-in `git`
-adapter) all work, with a test suite and CI across Python 3.10–3.12. Config-
-driven citation schemes and note types. Roadmap (embedding backend, agentic
-`verify`, inbox promote workflow) is in the [design doc](docs/design.md#11-roadmap).
+`digest`, `doctor`, `refresh` (pluggable source adapters + built-in `git`
+adapter), and the review-gated `inbox` / `promote` workflow all work, with a
+test suite and CI across Python 3.10–3.12. Config-driven citation schemes and
+note types. Roadmap (embedding backend, agentic `verify`) is in the
+[design doc](docs/design.md#11-roadmap).
 
 ## License
 
