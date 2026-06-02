@@ -163,6 +163,21 @@ intentionally gitignored, and never sent anywhere. The boost it feeds into
 `lattice context` is deliberately conservative: it can only nudge ranking, never
 override strong BM25 relevance, and a penalized note is never dropped entirely.
 
+### Lint directives (`# noqa`-style)
+
+Two inline HTML comments let you control the citation gate explicitly:
+
+- `<!-- lattice-ignore -->` — on (or trailing) a line, exempts **that line**
+  from the citation check. Use it for a consciously-acknowledged exception that
+  you don't want lint to keep flagging.
+- `<!-- lattice: needs-citation -->` — anywhere in a note, **hard-fails** lint
+  for that note until you remove it. `lattice promote` inserts this so an
+  unverified draft can never pass the gate by accident.
+
+```markdown
+The Gateway settles via the Ledger. <!-- lattice-ignore -->  ← exempted, on purpose
+```
+
 ## Source adapters & `lattice refresh`
 
 `lattice refresh` pulls candidate facts from external sources into a review

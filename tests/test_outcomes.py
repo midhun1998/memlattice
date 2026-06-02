@@ -135,7 +135,7 @@ def test_context_boosts_positively_used_note(tmp_path: Path):
     _note(tmp_path, "flows/alpha.md", body="payment settle ledger flow alpha")
     _note(tmp_path, "flows/bravo.md", body="payment settle ledger flow bravo")
     _distractors(tmp_path)
-    base = _run(tmp_path, "context", "payment settle ledger flow")
+    base = _run(tmp_path, "context", "payment settle ledger flow", "--ranker", "bm25")
     assert base.exit_code == 0, base.output
     # confirm both present
     assert "alpha.md" in base.output and "bravo.md" in base.output
@@ -143,7 +143,7 @@ def test_context_boosts_positively_used_note(tmp_path: Path):
     assert base.output.index("alpha.md") < base.output.index("bravo.md")
     # now record a positive outcome on bravo
     assert _run(tmp_path, "used", "bravo").exit_code == 0
-    boosted = _run(tmp_path, "context", "payment settle ledger flow")
+    boosted = _run(tmp_path, "context", "payment settle ledger flow", "--ranker", "bm25")
     assert boosted.exit_code == 0, boosted.output
     assert boosted.output.index("bravo.md") < boosted.output.index("alpha.md")
 
@@ -154,7 +154,7 @@ def test_context_no_learn_flag_disables_boost(tmp_path: Path):
     _note(tmp_path, "flows/bravo.md", body="payment settle ledger flow bravo")
     _distractors(tmp_path)
     _run(tmp_path, "used", "bravo")
-    res = _run(tmp_path, "context", "payment settle ledger flow", "--no-learn")
+    res = _run(tmp_path, "context", "payment settle ledger flow", "--no-learn", "--ranker", "bm25")
     assert res.exit_code == 0, res.output
     # pure BM25: alpha stays ahead of bravo
     assert res.output.index("alpha.md") < res.output.index("bravo.md")
@@ -182,7 +182,7 @@ def test_boost_is_conservative_does_not_override_strong_bm25(tmp_path: Path):
     _note(tmp_path, "flows/weak.md", body="payment occasionally mentioned once here")
     _distractors(tmp_path)
     _run(tmp_path, "used", "weak")  # positive outcome on the weak note
-    res = _run(tmp_path, "context", "payment settle ledger flow")
+    res = _run(tmp_path, "context", "payment settle ledger flow", "--ranker", "bm25")
     assert res.exit_code == 0, res.output
     assert "strong.md" in res.output and "weak.md" in res.output
     assert res.output.index("strong.md") < res.output.index("weak.md")
@@ -195,7 +195,7 @@ def test_learn_disabled_in_config_no_boost(tmp_path: Path):
     _note(tmp_path, "flows/bravo.md", body="payment settle ledger flow bravo")
     _distractors(tmp_path)
     _run(tmp_path, "used", "bravo")
-    res = _run(tmp_path, "context", "payment settle ledger flow")
+    res = _run(tmp_path, "context", "payment settle ledger flow", "--ranker", "bm25")
     assert res.exit_code == 0, res.output
     assert res.output.index("alpha.md") < res.output.index("bravo.md")
 

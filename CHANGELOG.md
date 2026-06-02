@@ -15,6 +15,15 @@
   never hidden. Disable per-invocation with `lattice context --no-learn` or
   globally with `[learn] enabled = false`. With no outcomes file, behavior is
   identical to pure BM25. New `post-used` hook event.
+- **Lint directives (`# noqa`-style).** `<!-- lattice-ignore -->` exempts a
+  single line from the citation check (a conscious exception); `<!-- lattice:
+  needs-citation -->` hard-fails a note until removed, regardless of the
+  trigger-word heuristic.
+- **Fix: `lattice promote` no longer launders uncited claims.** Promoted draft
+  material now lands in a scanned body section with a `needs-citation` marker,
+  so an unverified promotion fails `lint` (previously it was parked under
+  `## Open questions`, which lint excludes, and silently passed). Found by
+  dogfooding the real `refresh → promote` flow.
 
 ## v0.1.0 (2026-06-01) — config-driven, public
 

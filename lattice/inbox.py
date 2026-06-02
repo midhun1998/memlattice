@@ -7,9 +7,11 @@ stale), so an unused inbox has zero effect on the verified corpus.
 
 `promote` is a deterministic file + template transform — NO network, NO LLM, NO
 spend. It rebuilds the standard note skeleton from `templates.TEMPLATE_MD` and
-places the draft material as plainly-UNCITED scratch under `## Open questions`,
-so a promoted-but-uncited note STILL fails `lattice lint`: promotion can never
-launder an uncited claim into the verified body (lattice's core invariant).
+places the draft material in a dedicated body section carrying a
+`<!-- lattice: needs-citation -->` marker, so a promoted-but-uncited note STILL
+fails `lattice lint`: promotion can never launder an uncited claim into the
+verified body (lattice's core invariant). The human verifies each claim, adds a
+citation, moves it into the right section, and deletes the marker.
 """
 from __future__ import annotations
 
@@ -123,15 +125,17 @@ def _draft_material(draft: Draft) -> str:
 def build_promoted_note(
     draft: Draft, kind: str, slug: str, today: str
 ) -> str:
-    """Build a templated note from `TEMPLATE_MD` carrying the draft material as
-    UNCITED scratch under `## Open questions`.
+    """Build a templated note from `TEMPLATE_MD` carrying the draft material in
+    a dedicated `## Promoted draft (needs citations)` body section.
 
     The skeleton is identical to `lattice new` (type/title substituted) so the
     note is shaped like a real note and lint's structural checks apply. The
-    draft prose is appended to the Open questions section — which lint EXCLUDES
-    from the citation check — so the claims are visibly unverified and a human
-    must cite them and move them into the body before `lint` passes. Promotion
-    therefore never launders an uncited claim into the verified body.
+    draft prose goes into a real BODY section — one lint SCANS — NOT under
+    `## Open questions` (which lint excludes as a speculation quarantine).
+    That is deliberate: an uncited promoted note must FAIL `lattice lint` until
+    a human verifies each claim, adds a citation token, and moves it into the
+    appropriate body section. Promotion therefore never launders an uncited
+    claim into the verified corpus — the gate stays closed.
     """
     body = (
         T.TEMPLATE_MD.format(today=today)
@@ -139,29 +143,28 @@ def build_promoted_note(
         .replace("<Flow name>", draft.title or slug)
     )
     material = _draft_material(draft)
-    scratch = (
-        "\n"
+    section = (
+        "## Promoted draft (needs citations)\n\n"
+        "<!-- lattice: needs-citation -->\n"
         "<!-- promoted from inbox draft "
         f"{draft.slug!r} — UNCITED. Verify each claim, add a citation token, "
-        "then move it into the body above. Until then this note fails "
+        "move it into the right body section above, then delete this section "
+        "(including the needs-citation marker). Until then this note FAILS "
         "`lattice lint`. -->\n\n"
-        "_Promoted draft material (uncited — needs verification + citations "
-        "before moving into the body above):_\n\n"
         f"{material}\n"
     )
-    # insert the scratch INTO the Open questions section (before the next
-    # heading), so it rides the citation-check exclusion lint already applies
-    # to Open questions — it must not silently satisfy the citation gate.
-    return _append_to_open_questions(body, scratch)
+    # insert as a real body section BEFORE Open questions, so lint's citation
+    # check scans it — an uncited promotion must not satisfy the gate.
+    return _insert_before_open_questions(body, section)
 
 
-def _append_to_open_questions(body: str, scratch: str) -> str:
-    """Append `scratch` to the end of the `Open questions` section."""
+def _insert_before_open_questions(body: str, section: str) -> str:
+    """Insert `section` as a body section immediately before `## Open questions`
+    (so lint scans it). Falls back to appending before `Referenced by`, else EOF.
+    """
     starts = list(HEADING_RE.finditer(body))
-    for i, m in enumerate(starts):
-        if re.search(r"open questions", m.group(2), re.IGNORECASE):
-            end = starts[i + 1].start() if i + 1 < len(starts) else len(body)
-            section = body[m.start():end].rstrip("\n")
-            return body[: m.start()] + section + "\n" + scratch + "\n" + body[end:]
-    # no Open questions section (shouldn't happen with TEMPLATE_MD) — append.
-    return body.rstrip() + "\n\n## Open questions\n" + scratch + "\n"
+    for anchor in ("open questions", "referenced by"):
+        for m in starts:
+            if re.search(anchor, m.group(2), re.IGNORECASE):
+                return body[: m.start()] + section + "\n" + body[m.start():]
+    return body.rstrip() + "\n\n" + section + "\n"

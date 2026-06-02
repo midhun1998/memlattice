@@ -19,6 +19,7 @@ Applies to every file in this vault.
    citation token: `[file:path]`, `[doc:url]`, `[url:link]`,
    `[commit:sha]`, `[pr:owner/repo#n]`, `[conv:person:date]`. Add your
    own schemes (jira, linear, ...) via `[citations] extra` in config.
+   For a deliberate exception, trail the line with `<!-- lattice-ignore -->`.
 5. **Datestamp updates.** Bump `last_verified` in frontmatter on edit.
 6. **Never silently delete.** Use strikethrough +
    `(superseded YYYY-MM-DD: ...)`.

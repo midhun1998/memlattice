@@ -85,6 +85,38 @@ def test_promote_uncited_draft_still_fails_lint(tmp_path: Path):
     assert "un-cited" in lint.output, lint.output
 
 
+def test_promoted_draft_material_is_scanned_by_lint(tmp_path: Path):
+    """Regression (found dogfooding): a real promoted draft was placed under
+    `## Open questions`, which lint EXCLUDES — so the note passed lint with
+    unverified material in it. Promoted draft material must live in a section
+    lint actually scans, so an uncited promotion fails the gate."""
+    _init(tmp_path)
+    # a draft shaped like real `refresh` output: a plain factual claim, NO
+    # lint trigger-words, NO citation — the kind that slipped through before.
+    stub = (
+        "---\ntype: inbox-draft\nstatus: needs-citation\nsource: repo\n---\n\n"
+        "# DRAFT (uncited): add the Ledger settlement step\n\n"
+        "## Summary\nThe Ledger settles a payment via the Gateway.\n"
+    )
+    _drop_draft(tmp_path, "ledger-draft.md", stub)
+
+    res = _run(tmp_path, "promote", "ledger-draft", "--type", "flow")
+    assert res.exit_code == 0, res.output
+
+    note = (tmp_path / "flows" / "ledger-draft.md").read_text()
+    # the promoted material must land in a real body section BEFORE the
+    # Open-questions quarantine (which lint skips), AND carry the hard-fail marker.
+    summary_idx = note.find("Ledger settles a payment")
+    oq_idx = note.find("Open questions")
+    assert summary_idx != -1, "promoted material missing"
+    assert summary_idx < oq_idx, "material must precede Open questions, not hide under it"
+    assert "<!-- lattice: needs-citation -->" in note, "promote must mark the note needs-citation"
+
+    lint = _run(tmp_path, "lint")
+    assert lint.exit_code != 0, lint.output
+    assert "needs-citation" in lint.output, lint.output
+
+
 # ---------- exclusion contract ----------
 
 def test_inbox_dir_excluded_from_scan(tmp_path: Path):

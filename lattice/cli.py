@@ -849,6 +849,12 @@ def _lint_note(note, cite_re: re.Pattern[str], file_warn: int, file_max: int) ->
     extraction of the original inline loop; budgets are now config-driven.
     """
     problems: list[str] = []
+    # hard-fail directive: an explicit `<!-- lattice: needs-citation -->` marks
+    # the note as carrying unverified material (e.g. a promoted inbox draft).
+    # It fails the gate regardless of the trigger-word heuristic, until a human
+    # verifies + cites the claims and removes the marker.
+    if re.search(r"<!--\s*lattice:\s*needs-citation\s*-->", note.body):
+        problems.append("marked `needs-citation` — verify, cite, and remove the marker")
     if not note.type:
         problems.append("missing frontmatter `type`")
     if not note.last_verified:
@@ -880,6 +886,10 @@ def _lint_note(note, cite_re: re.Pattern[str], file_warn: int, file_max: int) ->
             in_code_fence = not in_code_fence
             continue
         if in_code_fence:
+            continue
+        # conscious-exception escape hatch (pylint `# noqa` style): a
+        # `<!-- lattice-ignore -->` on the line exempts it from the citation check.
+        if "<!-- lattice-ignore -->" in line or "<!--lattice-ignore-->" in line:
             continue
         if stripped.startswith(("|", "#", "-", "*", ">", "_", "`")):
             continue
