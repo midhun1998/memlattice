@@ -147,6 +147,29 @@ def refresh_config(vault: Path | None) -> dict[str, Any]:
     return out
 
 
+def inbox_dir(vault: Path | None) -> str:
+    """Return the inbox directory NAME (single source of truth).
+
+    The inbox is the review-gate quarantine between adapter output
+    (`lattice refresh`) and the verified corpus. Its name is config-driven so
+    it is never a hardcoded literal scattered across modules. Resolution order:
+    `[inbox] dir`, then `[refresh] inbox_dir` (back-compat with the refresh
+    table that predates the explicit `[inbox]` block), else the default
+    "_inbox". `vault.load_vault` consults this so a renamed inbox stays
+    excluded from the scan even without an underscore prefix.
+    """
+    cfg = load_config(vault)
+    inbox_tbl = cfg.get("inbox") or {}
+    val = inbox_tbl.get("dir")
+    if isinstance(val, str) and val:
+        return val
+    # back-compat: a user who set [refresh] inbox_dir keeps that name.
+    rval = (cfg.get("refresh") or {}).get("inbox_dir")
+    if isinstance(rval, str) and rval:
+        return rval
+    return DEFAULT_REFRESH["inbox_dir"]
+
+
 def sources(vault: Path | None) -> dict[str, dict[str, Any]]:
     """Return the `[sources]` table: source-name -> options dict.
 

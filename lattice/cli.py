@@ -529,6 +529,86 @@ def read_watermark_display(root: Path, source: str) -> str:
     return wm[:12] if wm else "(first run)"
 
 
+@main.command()
+def inbox() -> None:
+    """List pending uncited drafts in the review-gate inbox dir.
+
+    Read-only: never writes, safe to run anywhere in a vault. Drafts from
+    `lattice refresh` land here (excluded from the verified corpus) for a human
+    to review and `promote`. Empty inbox is not an error (exit 0).
+    """
+    from . import inbox as _inbox
+
+    root = find_vault(Path.cwd()) or _abort_no_vault()
+    drafts = _inbox.list_drafts(root)
+    rel = _inbox.inbox_path(root).relative_to(root)
+    if not drafts:
+        click.echo(f"({rel}/ empty — drafts from `lattice refresh` land here)")
+        run_hook(root, "inbox", args="0")
+        return
+    click.echo(click.style(f"{len(drafts)} pending draft(s) in {rel}/:", bold=True))
+    for d in drafts:
+        typ = d.type or "?"
+        click.echo(f"  {d.slug:<28} ~{d.token_estimate:>4}t  [{typ}]  {d.title[:54]}")
+    click.echo("\npromote one with: lattice promote <draft> [--type TYPE]")
+    run_hook(root, "inbox", args=str(len(drafts)))
+
+
+@main.command()
+@click.argument("draft")
+@click.option("--type", "kind", default=None, help="Destination note type (must be configured in [types]). If omitted, inferred from the draft's frontmatter `type:`.")
+@click.option("--slug", default=None, help="Override the destination filename stem (default: the draft stem).")
+@click.option("--keep", is_flag=True, help="Leave the original draft in the inbox (default: move it out).")
+@click.option("--force", is_flag=True, help="Overwrite an existing target note.")
+def promote(draft: str, kind: str | None, slug: str | None, keep: bool, force: bool) -> None:
+    """Promote an inbox DRAFT into a real category dir as a templated note.
+
+    The promoted note carries the draft material as clearly-UNCITED scratch, so
+    it STILL fails `lattice lint` until a human cites the claims and moves them
+    into the body — promotion can never launder an uncited claim into the
+    verified corpus. Deterministic file/template op: no network, no LLM, no
+    spend. DRAFT is resolved within the configured inbox dir only.
+    """
+    from . import inbox as _inbox
+
+    root = find_vault(Path.cwd()) or _abort_no_vault()
+    d = _inbox.resolve_draft(root, draft)
+    if d is None:
+        _err(f"no draft {draft!r} in {_inbox.inbox_path(root).relative_to(root)}/")
+        _err("list pending drafts with `lattice inbox` (drafts are resolved inside the inbox only)")
+        sys.exit(1)
+
+    types = note_types(root)
+    chosen = kind or d.type
+    if chosen is None or chosen not in types:
+        if kind is not None:
+            _err(f"unknown type {kind!r}; configured types: {', '.join(sorted(types))}")
+            _err("add it under [types] in .lattice/config.toml to use a new one")
+        else:
+            inferred = f" (draft `type: {d.type}` is not a configured note type)" if d.type else ""
+            _err(f"could not infer destination type{inferred}; pass --type")
+            _err(f"configured types: {', '.join(sorted(types))}")
+        sys.exit(2)
+
+    dest_slug = slug or d.slug
+    target = root / types[chosen] / f"{dest_slug}.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists() and not force:
+        _err(f"{target.relative_to(root)} already exists (use --force to overwrite)")
+        sys.exit(1)
+
+    note_text = _inbox.build_promoted_note(d, chosen, dest_slug, _today())
+    # Write target FIRST, verify it, only THEN remove the source — never lose a
+    # draft on a half-failed move.
+    target.write_text(note_text)
+    if not keep and target.exists():
+        d.path.unlink()
+
+    rel = target.relative_to(root)
+    _ok(f"promoted to {rel}; add citations then run `lattice lint`")
+    run_hook(root, "promote", args=f"{chosen}:{dest_slug}")
+
+
 # ---------- helpers ----------
 
 def _abort_no_vault() -> Path:

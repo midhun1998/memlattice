@@ -265,8 +265,10 @@ Files past `file_warn` get a split recommendation; past `file_max`, lint fails.
   `cache`, `digest`; config-driven citation schemes and note types.
 - **v0.2:** optional embedding backend for `context` (as an extra); agentic
   `verify` (re-check citations against their sources); Mermaid graph export.
-- **v0.3:** pluggable source adapters (review-gated auto-capture, git first);
-  outcome-weighted retrieval; multi-vault federation.
+- **v0.3:** pluggable source adapters (review-gated auto-capture, git first) —
+  the `_inbox/` review gate plus its `inbox` (list) and `promote` (move a draft
+  into a templated, still-uncited note) half are implemented; outcome-weighted
+  retrieval; multi-vault federation.
 
 Design rules that gate every addition: dependency-light core, no vendor names
 in core, opt-in/default-off for anything costly or unattended, and never bypass
