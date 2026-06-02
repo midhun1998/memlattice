@@ -12,13 +12,23 @@ All examples are fabricated (checkout, payment-gateway, jira).
 from __future__ import annotations
 
 import datetime as dt
+import importlib.util
 import json
 import os
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from lattice.cli import main
+
+# The Claude path (and these tests that spy on it) only exist when the optional
+# `agentic` extra is installed. Without it, lattice degrades to the heuristic —
+# so skip the SDK-dependent budget tests rather than fail.
+HAS_ANTHROPIC = importlib.util.find_spec("anthropic") is not None
+requires_anthropic = pytest.mark.skipif(
+    not HAS_ANTHROPIC, reason="requires the optional `agentic` extra (anthropic)"
+)
 
 
 # ---------- shared helpers ----------
@@ -91,6 +101,7 @@ def _spy_anthropic(monkeypatch):
 
 # ============ FAILING-FIRST integration test ============
 
+@requires_anthropic
 def test_digest_with_zero_ceiling_does_not_call_claude(tmp_path: Path, monkeypatch):
     """Default ceiling 0 = never spend. Even with a key set and the SDK present,
     `digest` must NOT construct the Claude client; it degrades to the heuristic.
@@ -165,6 +176,7 @@ def test_record_spend_is_local_only(tmp_path: Path):
         assert bad not in src, f"network/unattended primitive {bad!r} must not appear"
 
 
+@requires_anthropic
 def test_force_spend_overrides_zero_ceiling(tmp_path: Path, monkeypatch):
     """max_usd_per_day=0 but `digest --force-spend` DOES construct the client."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy-key-not-real")
@@ -234,6 +246,7 @@ def test_concurrent_safe_ledger_read_write(tmp_path: Path):
     assert budget.spent_today(tmp_path) == 0.005
 
 
+@requires_anthropic
 def test_max_usd_override_flag_raises_ceiling(tmp_path: Path, monkeypatch):
     """`digest --max-usd` overrides the config ceiling for one run."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy-key-not-real")
