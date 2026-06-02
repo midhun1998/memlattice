@@ -1,4 +1,4 @@
-"""P3-F optional local-embedding ranker for `lattice context`.
+"""Optional local-embedding ranker for `lattice context`.
 
 The embeddings backend ships as the `memlattice[embeddings]` extra. When it is
 installed AND enabled in config, `context`/`cache` re-rank notes with local

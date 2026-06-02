@@ -1,4 +1,4 @@
-"""P3-G — `lattice schedule` prints a ready-to-paste cron/launchd snippet.
+"""`lattice schedule` prints a ready-to-paste cron/launchd snippet.
 
 lattice ships NO daemon. `schedule` only PRINTS a snippet to stdout; the user
 installs it themselves. Nothing runs unattended by us. The scheduled command is

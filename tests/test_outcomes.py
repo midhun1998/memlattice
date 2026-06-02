@@ -1,11 +1,11 @@
-"""P2-E outcome feedback loop.
+"""Outcome feedback loop.
 
 `lattice used <slug> [<slug>...] [--bad]` appends local-only outcome records
 to `.lattice/cache/outcomes.jsonl`, and `lattice context` applies a small,
 conservative, recency-decayed multiplier on top of BM25 so recently/positively
 used notes rank slightly higher and `--bad`-marked notes are slightly
-penalized. No telemetry ever leaves the machine. Borrows only the SHAPE of
-memgram's memory_outcome(good, ids), not any constants.
+penalized. No telemetry ever leaves the machine. The signal is just a
+(good flag, note ids) record — no magic constants.
 """
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""P1-C — pluggable source adapters + built-in git adapter + `lattice refresh`.
+"""Pluggable source adapters + built-in git adapter + `lattice refresh`.
 
 `lattice refresh` is explicit/opt-in: it only runs when invoked, never on a
 schedule, and is a no-op unless `[sources]` is configured. The built-in `git`
