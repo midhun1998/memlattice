@@ -36,6 +36,14 @@ agentic = ["anthropic>=0.40"]
 [project.scripts]
 lattice = "lattice.cli:main"
 
+# The built-in `git` adapter registers via the SAME mechanism third parties
+# use: the "lattice.adapters" entry-point group. Core does not depend on this
+# being installed — `available_adapters()` always includes the built-in `git`
+# adapter directly — but registering it here documents and exercises the
+# discovery contract. Third-party adapters ship as separate packages.
+[project.entry-points."lattice.adapters"]
+git = "lattice.adapters:GitAdapter"
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"

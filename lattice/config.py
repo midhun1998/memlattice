@@ -115,6 +115,55 @@ def note_types(vault: Path | None) -> dict[str, str]:
     return types
 
 
+# Defaults for the `[refresh]` table (the `lattice refresh` adapter run).
+# `distill` no-ops without ANTHROPIC_API_KEY regardless of this flag; it's a
+# global off-switch for the Claude path. `limit` caps drafted items per source.
+DEFAULT_REFRESH: dict[str, Any] = {
+    "distill": True,
+    "inbox_dir": "_inbox",
+    "limit": 50,
+}
+
+
+def refresh_config(vault: Path | None) -> dict[str, Any]:
+    """Return the `[refresh]` config. Defaults overridden per-key by `[refresh]`
+    (config wins; unspecified keys keep their default)."""
+    cfg = load_config(vault)
+    out = dict(DEFAULT_REFRESH)
+    table = cfg.get("refresh") or {}
+    for key in out:
+        if key not in table:
+            continue
+        val = table[key]
+        if key == "distill":
+            if isinstance(val, bool):
+                out[key] = val
+        elif key == "inbox_dir":
+            if isinstance(val, str) and val:
+                out[key] = val
+        elif key == "limit":
+            if isinstance(val, int) and not isinstance(val, bool):
+                out[key] = val
+    return out
+
+
+def sources(vault: Path | None) -> dict[str, dict[str, Any]]:
+    """Return the `[sources]` table: source-name -> options dict.
+
+    NOTHING is enabled unless this table has entries (default-off). Each entry
+    must carry an `adapter` name; entries without one are skipped. Adapter
+    resolution / validation happens at refresh time (see adapters.build_adapter)
+    so an unknown adapter surfaces as a clear CLI error, not a silent drop.
+    """
+    cfg = load_config(vault)
+    table = cfg.get("sources") or {}
+    out: dict[str, dict[str, Any]] = {}
+    for name, spec in table.items():
+        if isinstance(name, str) and isinstance(spec, dict) and spec.get("adapter"):
+            out[name] = dict(spec)
+    return out
+
+
 def run_hook(vault: Path, event: str, args: str = "", output_file: Path | None = None) -> None:
     """Fire the post-<event> hook if configured. Failures are warnings, not errors."""
     cfg = load_config(vault)

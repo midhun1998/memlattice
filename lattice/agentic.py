@@ -97,3 +97,57 @@ def agentic_stub(body: str, vault: Path | None = None, use_cache: bool = True) -
         cache[h] = out
         _save_cache(vault, cache)
     return out
+
+
+DISTILL_PROMPT = textwrap.dedent("""\
+    Summarise the following source item into ONE neutral sentence (max 200
+    chars) describing what changed or happened. Do NOT invent facts, do NOT add
+    citations or links, do NOT add commentary or preamble. Output the sentence
+    only.
+
+    Source item:
+    ---
+    {body}
+    ---
+""")
+
+
+def agentic_distill(raw_text: str, vault: Path | None = None, use_cache: bool = True) -> str | None:
+    """Distil a raw source item to one neutral summary line via the Claude API,
+    or None when unavailable (no key, no SDK, or any API error).
+
+    Reuses the same cache plumbing + ANTHROPIC_API_KEY gating as agentic_stub,
+    so `lattice refresh` degrades to a pure heuristic with zero cost when no key
+    is set. The summary is intentionally NOT a citation — refresh keeps drafts
+    uncited regardless of what this returns.
+    """
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        return None
+    cache = _load_cache(vault) if use_cache else {}
+    h = "distill:" + _hash(raw_text)
+    if use_cache and h in cache:
+        return cache[h]
+    try:
+        from anthropic import Anthropic
+    except ImportError:
+        return None
+    try:
+        client = Anthropic(api_key=key)
+        msg = client.messages.create(
+            model=os.environ.get("LATTICE_DIGEST_MODEL", "claude-haiku-4-5-20251001"),
+            max_tokens=150,
+            messages=[{"role": "user", "content": DISTILL_PROMPT.format(body=raw_text[:8000])}],
+        )
+        text = "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
+    except Exception as e:  # network, auth, rate-limit — degrade to heuristic
+        print(f"[lattice] agentic distill failed: {e}; falling back to heuristic")
+        return None
+    text = text.splitlines()[0].strip() if text else ""
+    if not text:
+        return None
+    out = text[:200]
+    if use_cache:
+        cache[h] = out
+        _save_cache(vault, cache)
+    return out

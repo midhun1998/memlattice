@@ -11,7 +11,7 @@ import click
 from . import __version__
 from . import templates as T
 from . import outcomes as _outcomes
-from .config import budgets, citation_regex, learn_config, load_config, note_types, run_hook
+from .config import budgets, citation_regex, learn_config, load_config, note_types, run_hook, sources
 from .vault import (
     HEADING_RE,
     find_vault,
@@ -460,6 +460,73 @@ def digest(history_file: Path, keep_recent: int, write: bool, no_cache: bool) ->
         click.echo("\n--- preview (first 60 lines) ---")
         click.echo("\n".join(digested.splitlines()[:60]))
         click.echo("\nrun with --write to persist")
+
+
+@main.command()
+@click.option("--source", "-s", "src_names", multiple=True, help="Run only the named source(s); default = all configured in [sources].")
+@click.option("--since", default=None, help="Override the git adapter watermark for this run (a SHA/rev); persists only after a successful run.")
+@click.option("--limit", default=None, type=int, help="Cap candidate items per source (default from [refresh] limit, else 50).")
+@click.option("--no-distill", is_flag=True, help="Skip the Claude path; force cost-free deterministic heuristic stubs.")
+@click.option("--dry-run", is_flag=True, help="Discover + print what WOULD be drafted; write nothing, do not advance watermark.")
+@click.option("--no-cache", is_flag=True, help="Bypass the agentic distill cache (mirrors `digest --no-cache`).")
+def refresh(src_names: tuple[str, ...], since: str | None, limit: int | None, no_distill: bool, dry_run: bool, no_cache: bool) -> None:
+    """Run configured source adapters and draft UNCITED candidate stubs.
+
+    Explicit / opt-in: nothing runs unless you invoke this, and nothing is
+    configured by default. Drafts go to `_inbox/` (a review area excluded from
+    the note graph) — NEVER into a note body, so the citation invariant holds.
+    Promote a draft by hand: verify it, add a citation, move it into a note.
+    """
+    from .refresh import run_refresh
+
+    root = find_vault(Path.cwd()) or _abort_no_vault()
+    configured = sources(root)
+    if not configured:
+        _ok("no sources configured — add a [sources.<name>] block to .lattice/config.toml to enable `lattice refresh`")
+        return
+
+    selected = list(src_names) or None
+    if selected:
+        unknown = [s for s in selected if s not in configured]
+        if unknown:
+            _err(f"unknown source(s): {', '.join(unknown)}; configured: {', '.join(sorted(configured))}")
+            sys.exit(2)
+
+    try:
+        result = run_refresh(
+            root,
+            selected,
+            distill=not no_distill,
+            dry_run=dry_run,
+            limit=limit,
+            since=since,
+            use_cache=not no_cache,
+        )
+    except KeyError as e:
+        # unknown adapter name in [sources] — clear error, no traceback
+        _err(str(e).strip("\"'"))
+        sys.exit(2)
+
+    arrow = "would draft" if dry_run else "drafts"
+    for s in result.sources:
+        wm = s.watermark or read_watermark_display(root, s.name)
+        click.echo(f"{s.name:<14} {s.discovered} new since {wm} -> {s.drafted} {arrow} -> _inbox/")
+        if dry_run:
+            for p in s.paths:
+                click.echo(f"    {p.name}")
+    total = result.total_drafts
+    if dry_run:
+        click.echo(f"\ndry run — nothing written ({total} draft(s) previewed)")
+    else:
+        _ok(f"\nrefresh complete — {total} draft(s) in _inbox/ (uncited; review and promote by hand)")
+        run_hook(root, "refresh", args=str(total))
+
+
+def read_watermark_display(root: Path, source: str) -> str:
+    """Watermark short-sha for the summary line, or '(first run)'."""
+    from .adapters import read_watermark
+    wm = read_watermark(root, source)
+    return wm[:12] if wm else "(first run)"
 
 
 # ---------- helpers ----------

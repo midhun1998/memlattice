@@ -83,6 +83,33 @@ Tell your agent:
 > Run `lattice context "<query>"` to load only the relevant subset.
 """
 
+INBOX_STUB = """\
+---
+type: inbox-draft
+status: needs-citation
+source: {source}
+ref: {ref}
+---
+
+# DRAFT (uncited): {title}
+
+> [!warning] Review item — NOT verified knowledge.
+> This stub was drafted by `lattice refresh` from a source item. It is
+> deliberately UNCITED and lives in `_inbox/` (excluded from the note graph).
+> To promote it: verify the claim, add a real citation token, rewrite it into
+> the right note body, then delete this file. Do NOT link to it.
+
+- [ ] TODO: verify and add a citation, then promote into a note body.
+
+## Summary
+{summary}
+
+## Raw source
+```
+{raw}
+```
+"""
+
 CONFIG_TOML = """\
 [budgets]
 file_warn = 6000
@@ -118,10 +145,32 @@ half_life_days = 30    # outcome weight = 0.5 ** (age_days / half_life_days)
 [citations]
 # extra = ["jira", "confluence"]
 
+# Source adapters for `lattice refresh` (explicit, opt-in, default OFF).
+# `lattice refresh` only runs when you type it — there is no scheduler/daemon.
+# With NO entries below it is a no-op. Each entry names an adapter and its
+# options; drafts land in _inbox/ as UNCITED review stubs (never note bodies).
+# The built-in `git` adapter is local-only: no network, no auth. Third-party
+# adapters install as separate packages registering under the entry-point group
+# "lattice.adapters" (installing one runs its code — a trust boundary).
+[sources]
+# [sources.repo]
+# adapter = "git"
+# path    = "."             # repo to scan, relative to the vault
+# branch  = "main"          # optional; defaults to HEAD
+# paths   = ["docs/", "src/"]  # optional path filter
+
+# Refresh behaviour. `distill` toggles the optional Claude distillation (no-ops
+# without ANTHROPIC_API_KEY); `limit` caps drafted items per source to bound
+# cost / inbox spam; `inbox_dir` renames the review directory.
+[refresh]
+# distill   = true
+# limit     = 50
+# inbox_dir = "_inbox"
+
 # Run scripts after a lattice command finishes successfully.
 # Available events: post-init, post-new, post-link, post-lint, post-stale,
 #                   post-context, post-digest, post-cache, post-doctor,
-#                   post-used.
+#                   post-used, post-refresh.
 # Each entry is a shell command. Working dir = vault root.
 # Useful env vars passed in:
 #   LATTICE_VAULT, LATTICE_EVENT, LATTICE_ARGS,
