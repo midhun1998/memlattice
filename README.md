@@ -102,6 +102,7 @@ Then tell your agent, once:
 | `lattice cache [--build]` | Pre-render context manifests for offline use |
 | `lattice digest <history-file>` | Compress an unbounded session-history file |
 | `lattice doctor [--days N] [--strict]` | Read-only vault health summary (counts, stale, orphans, budgets, lint); exits non-zero on hard problems |
+| `lattice refresh [-s NAME] [--since REF] [--limit N] [--no-distill] [--dry-run] [--no-cache]` | Run configured source adapters and draft **uncited** candidate stubs into `_inbox/` for review (opt-in, default-off) |
 
 ## The five opinions
 
@@ -144,6 +145,57 @@ intentionally gitignored, and never sent anywhere. The boost it feeds into
 `lattice context` is deliberately conservative: it can only nudge ranking, never
 override strong BM25 relevance, and a penalized note is never dropped entirely.
 
+## Source adapters & `lattice refresh`
+
+`lattice refresh` pulls candidate facts from external sources into a review
+queue — **without** ever bypassing the citation gate. It is **explicit and
+default-off**: it only runs when you type it, there is no scheduler or daemon,
+and with no `[sources]` configured it is a no-op.
+
+```toml
+# .lattice/config.toml — nothing here = refresh does nothing
+[sources.repo]
+adapter = "git"            # the only built-in adapter (local-only, no network/auth)
+path    = "."              # repo to scan, relative to the vault
+branch  = "main"           # optional
+paths   = ["docs/", "src/"]  # optional path filter
+```
+
+```bash
+$ lattice refresh --dry-run         # preview; writes nothing, no watermark move
+repo           3 new since (first run) -> 3 would draft -> _inbox/
+
+$ lattice refresh                   # draft uncited stubs into _inbox/
+repo           3 new since (first run) -> 3 drafts -> _inbox/
+refresh complete — 3 draft(s) in _inbox/ (uncited; review and promote by hand)
+```
+
+How the core invariant is preserved:
+
+- Drafts land in **`_inbox/`**, a review area `load_vault` already excludes (it
+  starts with `_`), so `lint`, `link`, and `context` never read them.
+- Every draft is an **uncited stub** with a `needs-citation` marker. You promote
+  it by hand: verify the claim, add a real citation, rewrite it into a note body,
+  then delete the stub. Uncited claims still cannot enter a note body.
+- The built-in **`git`** adapter is universal: it shells out to your local `git`
+  binary (`git log` since a stored watermark under the gitignored
+  `.lattice/cache/`), so it needs **no network and no token**. The first run is
+  bounded to the most recent commits (not the whole history); `--limit` caps it
+  further.
+- Optional distillation reuses the same Claude path as `digest` and **no-ops
+  without `ANTHROPIC_API_KEY`** (or with `--no-distill` / `[refresh] distill =
+  false`), degrading to a cost-free heuristic.
+
+`_inbox/` may contain raw commit text from a private repo — treat it as a
+review area and consider gitignoring it; redaction happens when you promote.
+
+**Custom adapters** (e.g. a fabricated `checkout-events`, `payment-gateway`, or
+`jira` adapter) ship as **separate packages** that register under the
+`lattice.adapters` entry-point group and expose `discover() -> list[RawItem]` —
+so proprietary/internal sources stay out of this OSS tree and bring their own
+dependencies. Installing a third-party adapter runs its code; a broken one is
+skipped with a warning rather than aborting the run.
+
 ## Documentation
 
 - 🌐 **[Landing page](https://midhun1998.github.io/memlattice/)** — the pitch, visualized
@@ -153,10 +205,11 @@ override strong BM25 relevance, and a penalized note is never dropped entirely.
 
 ## Status
 
-**v0.1.** `init`, `new`, `link`, `lint`, `stale`, `context`, `cache`, and
-`digest` all work, with a test suite and CI across Python 3.10–3.12. Config-
+**v0.1.** `init`, `new`, `link`, `lint`, `stale`, `context`, `cache`,
+`digest`, `doctor`, and `refresh` (pluggable source adapters + built-in `git`
+adapter) all work, with a test suite and CI across Python 3.10–3.12. Config-
 driven citation schemes and note types. Roadmap (embedding backend, agentic
-`verify`, pluggable source adapters) is in the [design doc](docs/design.md#11-roadmap).
+`verify`, inbox promote workflow) is in the [design doc](docs/design.md#11-roadmap).
 
 ## License
 
