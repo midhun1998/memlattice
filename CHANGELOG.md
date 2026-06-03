@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.2.0 (2026-06-03) — the verification gate
+
+Repositions lattice as the trust/verification layer for agent memory.
+
+- **`lattice verify`** — does the cited source still back the claim? Layer 1
+  (always, no LLM): file:/commit: existence + freshness; conv:/chat:
+  human-attested; doc:/url:/pr: unfetched unless `--fetch`; cross-repo paths are
+  `unresolvable` (warn), distinct from `missing` (fail). Layer 2 (`--entail`):
+  an LLM judges supported/contradicted/unsupported, **gated by the cost breaker
+  and off at the default $0** (never spends silently).
+- **CI audit gate** — `verify --changed --base REF` scopes to changed memory
+  files; `--format json|sarif` emits a machine-readable artifact (SARIF for
+  GitHub code-scanning); exits non-zero on missing/contradicted/unsupported.
+- **MCP server** (`lattice/mcp`, `pip install "memlattice[mcp]"`,
+  `lattice-mcp`) exposes context/search/lint/verify in-process; `lattice
+  install claude-code` wires it into a project `.mcp.json` so the agent queries
+  lattice natively. Core still imports without the SDK.
+- **Budget reset periods** — `[budget] reset = hourly|daily|weekly|monthly`
+  (daily default; `max_usd_per_day` kept as a backward-compatible alias).
+- Honest framing: "verified by construction" → "cited by construction,
+  verifiable on demand" (lint enforces citations; `verify` checks sources).
+
 ## Unreleased
 
 - **`lattice used <slug> [<slug>...] [--bad]`** — record an outcome for notes

@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lattice — your AI agent's long-term memory, in plain markdown</title>
-<meta name="description" content="A tiny CLI + markdown convention that makes AI agent memory structured, verified, multi-tool, and cheap on tokens. No database. No server. Just markdown.">
+<title>lattice — the verification gate for AI-agent memory</title>
+<meta name="description" content="Your agent remembers; lattice proves it. A tiny CLI + markdown convention: every claim cited, uncited claims blocked by lint, sources checked by verify — runnable in CI. No database, no server.">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -70,6 +71,29 @@
   h2{font-size:clamp(32px,5vw,52px);margin:22px 0 18px}
   .lead{font-size:clamp(17px,2vw,20px);color:var(--muted);max-width:62ch;font-weight:400}
   .grad-text{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+  /* architecture diagram */
+  .arch{margin-top:48px;display:flex;flex-direction:column;align-items:stretch;gap:0}
+  .arch-callers{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .arch-node{background:var(--surface);border:1px solid var(--line-2);border-radius:14px;
+    padding:18px 16px;text-align:center;display:flex;flex-direction:column;gap:4px}
+  .arch-who{font-weight:700;font-size:16px;color:var(--fg)}
+  .arch-how{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:var(--cyan)}
+  .arch-sub{font-size:12px;color:var(--faint)}
+  .arch-arrows{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;height:34px}
+  .arch-arrows span{justify-self:center;width:2px;height:100%;
+    background:linear-gradient(var(--violet),var(--cyan));position:relative;opacity:.7}
+  .arch-arrows span::after{content:"";position:absolute;bottom:-1px;left:-4px;
+    border:5px solid transparent;border-top-color:var(--cyan)}
+  .arch-core{background:linear-gradient(135deg,rgba(129,140,248,.12),rgba(34,211,238,.07));
+    border:1px solid var(--indigo);border-radius:16px;padding:24px 20px;text-align:center}
+  .arch-core-title{font-weight:800;font-size:18px;letter-spacing:.02em;color:var(--fg);margin-bottom:14px}
+  .arch-core-bits{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-bottom:12px}
+  .arch-core-bits span{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;
+    color:var(--sky);background:rgba(56,189,248,.1);border:1px solid var(--line-2);
+    border-radius:8px;padding:5px 11px}
+  .arch-core-sub{font-size:12.5px;color:var(--muted)}
+  @media(max-width:640px){.arch-callers,.arch-arrows{grid-template-columns:1fr}.arch-arrows{display:none}}
 
   /* ---------- hero ---------- */
   .hero{min-height:100vh;display:flex;flex-direction:column;justify-content:center;
@@ -271,8 +295,8 @@
 <section class="hero" id="top">
   <div class="inner">
     <div class="hero-tag reveal"><span class="eyebrow">Open source · zero dependencies</span></div>
-    <h1 class="reveal" data-d="1">Your agent's memory,<br><span class="grad-text">verified by construction.</span></h1>
-    <p class="sub reveal" data-d="2">Every Claude Code, Cursor, or Aider user ends up with a 2,000-line <code>CLAUDE.md</code> the model never fully reads — riddled with speculation it later cites as fact. <b>lattice</b> is a tiny CLI + markdown convention that makes that memory <b>structured, cited, multi-tool, and cheap on tokens</b>. No database. No server. Just markdown.</p>
+    <h1 class="reveal" data-d="1">Your agent remembers.<br><span class="grad-text">lattice proves it.</span></h1>
+    <p class="sub reveal" data-d="2">Claude Code, Cursor, claude-mem — your agent already captures memory. The problem is it fills with <b>speculation it later cites as fact</b>, goes stale, and nobody can prove where a "fact" came from. <b>lattice</b> is the gate that keeps memory honest: every claim carries a <b>citation</b>, uncited claims are blocked (<code>lattice lint</code>), and <code>lattice verify</code> checks the source still backs the claim — runnable in CI. A tiny CLI + markdown convention. No database, no server.</p>
     <div class="cta-row reveal" data-d="3">
       <a class="btn btn-primary" href="#install" data-magnetic>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" stroke="#06070d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -330,7 +354,7 @@
   <div class="inner">
     <span class="eyebrow reveal">How it works</span>
     <h2 class="reveal" data-d="1">Three guarantees, <span class="grad-text">enforced mechanically.</span></h2>
-    <p class="lead reveal" data-d="2">Not a vibe — a linter, a retriever, and a graph. Each one runs locally over plain markdown.</p>
+    <p class="lead reveal" data-d="2">A linter, a retriever, and a graph — each running locally over plain markdown.</p>
     <div class="steps">
 
       <!-- 1. verification gate -->
@@ -380,6 +404,30 @@
             <circle class="minidot" cx="180" cy="76" r="5" data-i="4"/>
           </svg>
         </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ARCHITECTURE -->
+<section id="architecture">
+  <div class="inner">
+    <span class="eyebrow reveal">Architecture</span>
+    <h2 class="reveal" data-d="1">One engine. <span class="grad-text">Three faces.</span></h2>
+    <p class="lead reveal" data-d="2">You, your agent, and your CI all reach the same core in-process — over a plain-markdown vault on disk. No server, no database.</p>
+    <div class="arch reveal" data-d="2" role="img" aria-label="Three callers — you via CLI, your agent via the MCP server, and CI via lattice verify — all call one lattice core (vault, lint, context, verify, citations, budget) over a plain-markdown vault on disk.">
+      <div class="arch-callers">
+        <div class="arch-node"><span class="arch-who">you</span><span class="arch-how">CLI</span></div>
+        <div class="arch-node"><span class="arch-who">your agent</span><span class="arch-how">MCP server</span><span class="arch-sub">Claude Code · Cursor</span></div>
+        <div class="arch-node"><span class="arch-who">CI</span><span class="arch-how">verify --ci</span><span class="arch-sub">fail PR on uncited / unsupported</span></div>
+      </div>
+      <div class="arch-arrows" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div class="arch-core">
+        <div class="arch-core-title">lattice core</div>
+        <div class="arch-core-bits">
+          <span>vault</span><span>lint</span><span>context</span><span>verify</span><span>citations</span><span>budget</span>
+        </div>
+        <div class="arch-core-sub">plain-markdown vault on disk — grep-able, git-diffable, tool-agnostic</div>
       </div>
     </div>
   </div>
