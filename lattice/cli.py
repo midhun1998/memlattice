@@ -401,6 +401,51 @@ def _citation_line_map(body: str, cite_re) -> dict[str, int]:
     return m
 
 
+@main.command()
+@click.argument("target", type=click.Choice(["claude-code", "print"]))
+@click.option("--yes", is_flag=True, help="Write without prompting.")
+def install(target: str, yes: bool) -> None:
+    """Wire lattice's MCP server into an agent so it's used automatically.
+
+    `claude-code` writes a project `.mcp.json` advertising the `lattice` server
+    (run via `lattice-mcp`), so the agent can call lattice_context/lint/verify
+    natively — no "remember to run the CLI". `print` just emits the snippet.
+    Idempotent; needs the [mcp] extra installed to actually run the server.
+    """
+    root = find_vault(Path.cwd()) or _abort_no_vault()
+    server_entry = {
+        "lattice": {
+            "command": "lattice-mcp",
+            "args": [],
+            "env": {},
+        }
+    }
+    snippet = {"mcpServers": server_entry}
+    if target == "print":
+        click.echo(json.dumps(snippet, indent=2))
+        click.echo("\n# add the above to .mcp.json; install the server with: pip install \"memlattice[mcp]\"", err=True)
+        return
+    # claude-code: merge into (or create) .mcp.json at the vault root
+    mcp_path = root / ".mcp.json"
+    existing = {}
+    if mcp_path.exists():
+        try:
+            existing = json.loads(mcp_path.read_text())
+        except json.JSONDecodeError:
+            existing = {}
+    servers = existing.setdefault("mcpServers", {})
+    if servers.get("lattice") == server_entry["lattice"]:
+        _ok(f".mcp.json already wired ({mcp_path.relative_to(root)})")
+        return
+    if not yes and mcp_path.exists():
+        click.confirm(f"merge a 'lattice' MCP server into {mcp_path.relative_to(root)}?", abort=True)
+    servers["lattice"] = server_entry["lattice"]
+    mcp_path.write_text(json.dumps(existing, indent=2) + "\n")
+    _ok(f"wired lattice MCP server into {mcp_path.relative_to(root)}")
+    click.echo("install the server runtime with: pip install \"memlattice[mcp]\", then restart your agent.")
+    run_hook(root, "install", args=target)
+
+
 def _resolve_ranker(root: Path, requested: str) -> tuple[str, str]:
     """Decide which ranker actually runs and why.
 
