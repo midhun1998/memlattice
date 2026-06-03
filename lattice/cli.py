@@ -515,9 +515,10 @@ def digest(history_file: Path, keep_recent: int, write: bool, no_cache: bool, ma
     or `--force-spend` to enable the Claude path.
     """
     from . import budget as _budget
-    from .config import budget_config
+    from .config import budget_config, budget_reset
 
     root = find_vault(Path.cwd())
+    reset = budget_reset(root)
     archive_dir = (root / ".lattice/history/full") if root else (history_file.parent / ".lattice-history")
     archive_dir.mkdir(parents=True, exist_ok=True)
     text = history_file.read_text()
@@ -539,7 +540,7 @@ def digest(history_file: Path, keep_recent: int, write: bool, no_cache: bool, ma
     def _pre_spend() -> bool:
         if root is None:
             return False
-        decision = _budget.check(root, est_cost=est, max_usd_per_day=ceiling, force=force_spend)
+        decision = _budget.check(root, est_cost=est, max_usd=ceiling, reset=reset, force=force_spend)
         if not decision.allow:
             if not blocked_notice_shown["v"]:
                 click.echo(click.style(decision.reason, fg="yellow"), err=True)
@@ -552,7 +553,7 @@ def digest(history_file: Path, keep_recent: int, write: bool, no_cache: bool, ma
 
     def _record() -> None:
         if root is not None:
-            _budget.record(root, est)
+            _budget.record(root, est, reset=reset)
 
     pre = _pre_spend if root is not None else None
     post = _record if root is not None else None
@@ -656,20 +657,22 @@ def budget_status() -> None:
     API. With the default ceiling 0 this confirms the Claude path is gated off.
     """
     from . import budget as _budget
-    from .config import budget_config
+    from .config import budget_config, budget_reset
 
     root = find_vault(Path.cwd()) or _abort_no_vault()
     bcfg = budget_config(root)
     ceiling = bcfg["max_usd_per_day"]
-    spent = _budget.spent_today(root)
+    reset = budget_reset(root)
+    spent = _budget.spent_in_period(root, reset)
     est = bcfg["estimated_usd_per_digest"]
-    today = _budget._today()
+    label = {"hourly": "hour", "daily": "day", "weekly": "week", "monthly": "month"}.get(reset, reset)
+    bucket = _budget._period_key(reset)
     if ceiling <= 0:
-        click.echo(f"budget {today}: spent ${spent:.4f} — ceiling $0.00/day (never spend; Claude path OFF)")
+        click.echo(f"budget {bucket}: spent ${spent:.4f} — ceiling $0.00/{label} (never spend; Claude path OFF)")
         click.echo("raise [budget] max_usd_per_day to enable spending.")
     else:
         remaining = max(ceiling - spent, 0.0)
-        click.echo(f"budget {today}: spent ${spent:.4f} / ${ceiling:.2f}/day  (remaining ${remaining:.4f})")
+        click.echo(f"budget {bucket}: spent ${spent:.4f} / ${ceiling:.2f}/{label}  (remaining ${remaining:.4f})")
         click.echo(f"estimated cost per digest call: ${est:.4f}")
     run_hook(root, "budget", args=f"{spent:.4f}/{ceiling:.2f}")
 

@@ -195,6 +195,12 @@ DEFAULT_BUDGET: dict[str, float] = {
     "estimated_usd_per_digest": 0.002,
 }
 
+# Reset period for the cost ceiling. `max_usd_per_day` is the ceiling value;
+# `reset` selects the window it applies to (the "per_day" in the key name is
+# historical — the ceiling resets every `reset` period).
+DEFAULT_BUDGET_RESET = "daily"
+VALID_BUDGET_RESETS = ("hourly", "daily", "weekly", "monthly")
+
 
 def budget_config(vault: Path | None) -> dict[str, float]:
     """Return the `[budget]` config. Defaults overridden per-key by `[budget]`
@@ -212,6 +218,14 @@ def budget_config(vault: Path | None) -> dict[str, float]:
     if out["estimated_usd_per_digest"] < 0:
         out["estimated_usd_per_digest"] = 0.0
     return out
+
+
+def budget_reset(vault: Path | None) -> str:
+    """The configured `[budget] reset` period; defaults to daily, unknown
+    values fall back to daily."""
+    cfg = load_config(vault)
+    val = (cfg.get("budget") or {}).get("reset")
+    return val if val in VALID_BUDGET_RESETS else DEFAULT_BUDGET_RESET
 
 
 # Defaults for the `[schedule]` snippet hint. `command` is config-driven so no
