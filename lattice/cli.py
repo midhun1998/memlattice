@@ -279,17 +279,34 @@ def doctor(days: int, strict: bool) -> None:
 @main.command()
 @click.argument("paths", nargs=-1, type=click.Path())
 @click.option("--fetch", is_flag=True, help="Resolve doc:/url: citations over the network (off by default).")
-def verify(paths: tuple[str, ...], fetch: bool) -> None:
-    """Check that cited sources still exist (Layer 1: existence/freshness).
+@click.option("--entail", "do_entail", is_flag=True, help="Layer 2: LLM-judge whether each present source SUPPORTS the claim (budget-gated; off at $0).")
+def verify(paths: tuple[str, ...], fetch: bool, do_entail: bool) -> None:
+    """Check that cited sources back their claims.
 
-    Resolves each citation: file:/commit: are checked on disk/in-repo; conv:/chat:
-    are human-attested; doc:/url:/pr: are unfetched unless --fetch. Exits non-zero
-    if any note has a `missing` citation. (LLM entailment is opt-in; see --entail.)
+    Layer 1 (always): file:/commit: checked on disk/in-repo; conv:/chat: are
+    human-attested; doc:/url:/pr: unfetched unless --fetch. Layer 2 (--entail):
+    an LLM judges whether each present source SUPPORTS the claim — gated by the
+    `[budget]` breaker, so it never spends at the default $0 ceiling. Exits
+    non-zero on `missing`/`contradicted`/`unsupported`.
     """
     from . import verify as _verify
     root = find_vault(Path.cwd()) or _abort_no_vault()
     cite_re = citation_regex(root)
     notes = load_vault(root)
+
+    # Layer-2 spend gate: build a pre_spend closure from the budget breaker so
+    # entailment never spends past the configured ceiling. Off entirely at $0.
+    from . import budget as _budget
+    from .config import budget_config, budget_reset
+    bcfg = budget_config(root)
+    reset = budget_reset(root)
+    ceiling = bcfg["max_usd_per_day"]
+    est = bcfg["estimated_usd_per_digest"]
+
+    def entail_ok() -> bool:
+        """Consult the cost breaker before each judge call (False at $0)."""
+        return do_entail and _budget.check(root, est_cost=est, max_usd=ceiling, reset=reset).allow
+
     failed = 0
     for n in notes:
         tokens = _verify.citations_in(n.body, cite_re)
@@ -297,11 +314,31 @@ def verify(paths: tuple[str, ...], fetch: bool) -> None:
             continue
         statuses = []
         details = []
+        # Layer 1
+        resolved = {}
         for tok in tokens:
             st = _verify.resolve_citation(tok, root=root, fetch=fetch)
+            resolved[tok] = st
             statuses.append(st.status)
             if _verify.is_fail(st.status) or st.status in ("drifted", "unresolvable"):
                 details.append(f"    {st.status}: [{tok}]" + (f" — {st.detail}" if st.detail else ""))
+        # Layer 2 (opt-in, budget-gated): judge present file sources vs their claim
+        if do_entail:
+            from . import agentic
+            for claim, toks in _verify.lines_with_citations(n.body, cite_re):
+                for tok in toks:
+                    st = resolved.get(tok)
+                    if not st or st.status not in ("present", "fetched"):
+                        continue
+                    src = _verify.source_text(tok, root)
+                    if src is None or not entail_ok():
+                        continue
+                    verdict = agentic.entail(claim, src)
+                    if verdict in ("supported", "contradicted", "unsupported"):
+                        _budget.record(root, est, reset=reset)
+                    statuses.append(verdict)
+                    if _verify.is_fail(verdict):
+                        details.append(f"    {verdict}: [{tok}] — claim not backed by source")
         note_status = _verify.worst(statuses)
         rel = n.path.relative_to(root)
         if _verify.is_fail(note_status):
@@ -319,7 +356,7 @@ def verify(paths: tuple[str, ...], fetch: bool) -> None:
     if failed:
         _err(f"\n{failed} note(s) with unresolved citations")
         sys.exit(1)
-    _ok(f"\nall {len(notes)} note(s) verified (Layer 1)")
+    _ok(f"\nall {len(notes)} note(s) verified" + (" (Layer 1+2)" if do_entail else " (Layer 1)"))
 
 
 def _resolve_ranker(root: Path, requested: str) -> tuple[str, str]:

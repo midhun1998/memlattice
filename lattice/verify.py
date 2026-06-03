@@ -147,3 +147,35 @@ def citations_in(text: str, cite_re) -> list[str]:
         inner = m.group(0)[1:-1]  # strip [ ]
         out.append(inner)
     return out
+
+
+def lines_with_citations(text: str, cite_re) -> list[tuple[str, list[str]]]:
+    """Return (line_text, [citation tokens on that line]) for each line that
+    carries at least one citation. Used by entailment to pair a CLAIM (the
+    sentence) with its cited SOURCEs."""
+    out = []
+    for line in text.splitlines():
+        toks = citations_in(line, cite_re)
+        if toks:
+            # strip the citation tokens out of the claim text itself
+            claim = cite_re.sub("", line).strip()
+            out.append((claim, toks))
+    return out
+
+
+def source_text(token: str, root: Path) -> str | None:
+    """Best-effort source text for a citation, for entailment. Only resolves
+    cheap local sources (file:); returns None when there's nothing to read."""
+    scheme, _, body = token.partition(":")
+    if scheme.strip().lower() != "file":
+        return None
+    m = re.match(r"^(.*?)(?::(\d+))?$", body)
+    relpath = m.group(1) if m else body
+    expanded = Path(relpath).expanduser()
+    target = expanded if expanded.is_absolute() else (root / expanded)
+    if not target.is_file():
+        return None
+    try:
+        return target.read_text(errors="replace")[:6000]
+    except OSError:
+        return None
