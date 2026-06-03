@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 import sys
 from pathlib import Path
@@ -280,22 +281,28 @@ def doctor(days: int, strict: bool) -> None:
 @click.argument("paths", nargs=-1, type=click.Path())
 @click.option("--fetch", is_flag=True, help="Resolve doc:/url: citations over the network (off by default).")
 @click.option("--entail", "do_entail", is_flag=True, help="Layer 2: LLM-judge whether each present source SUPPORTS the claim (budget-gated; off at $0).")
-def verify(paths: tuple[str, ...], fetch: bool, do_entail: bool) -> None:
-    """Check that cited sources back their claims.
+@click.option("--changed", is_flag=True, help="Only scan memory files changed vs --base (for CI on a PR).")
+@click.option("--base", default="HEAD", help="Git base ref for --changed (default HEAD).")
+@click.option("--format", "fmt", type=click.Choice(["text", "json", "sarif"]), default="text", help="Output format. json/sarif emit a machine-readable audit artifact for CI.")
+def verify(paths: tuple[str, ...], fetch: bool, do_entail: bool, changed: bool, base: str, fmt: str) -> None:
+    """Check that cited sources back their claims (the verification gate).
 
     Layer 1 (always): file:/commit: checked on disk/in-repo; conv:/chat: are
     human-attested; doc:/url:/pr: unfetched unless --fetch. Layer 2 (--entail):
     an LLM judges whether each present source SUPPORTS the claim — gated by the
-    `[budget]` breaker, so it never spends at the default $0 ceiling. Exits
-    non-zero on `missing`/`contradicted`/`unsupported`.
+    `[budget]` breaker, so it never spends at the default $0 ceiling.
+
+    CI: `--changed --base <ref>` scopes to changed files; `--format json|sarif`
+    emits an audit artifact. Exits non-zero on missing/contradicted/unsupported.
     """
     from . import verify as _verify
     root = find_vault(Path.cwd()) or _abort_no_vault()
     cite_re = citation_regex(root)
     notes = load_vault(root)
+    if changed:
+        changed_set = _changed_files(root, base)
+        notes = [n for n in notes if str(n.path.resolve()) in changed_set]
 
-    # Layer-2 spend gate: build a pre_spend closure from the budget breaker so
-    # entailment never spends past the configured ceiling. Off entirely at $0.
     from . import budget as _budget
     from .config import budget_config, budget_reset
     bcfg = budget_config(root)
@@ -304,25 +311,21 @@ def verify(paths: tuple[str, ...], fetch: bool, do_entail: bool) -> None:
     est = bcfg["estimated_usd_per_digest"]
 
     def entail_ok() -> bool:
-        """Consult the cost breaker before each judge call (False at $0)."""
         return do_entail and _budget.check(root, est_cost=est, max_usd=ceiling, reset=reset).allow
 
-    failed = 0
+    report = []  # structured per-note result, rendered per --format
     for n in notes:
         tokens = _verify.citations_in(n.body, cite_re)
         if not tokens:
             continue
-        statuses = []
-        details = []
-        # Layer 1
+        cites = []  # {token, status, detail, line}
         resolved = {}
+        line_of = _citation_line_map(n.body, cite_re)
         for tok in tokens:
             st = _verify.resolve_citation(tok, root=root, fetch=fetch)
             resolved[tok] = st
-            statuses.append(st.status)
-            if _verify.is_fail(st.status) or st.status in ("drifted", "unresolvable"):
-                details.append(f"    {st.status}: [{tok}]" + (f" — {st.detail}" if st.detail else ""))
-        # Layer 2 (opt-in, budget-gated): judge present file sources vs their claim
+            cites.append({"token": tok, "status": st.status, "detail": st.detail,
+                          "line": line_of.get(tok, 1)})
         if do_entail:
             from . import agentic
             for claim, toks in _verify.lines_with_citations(n.body, cite_re):
@@ -336,27 +339,66 @@ def verify(paths: tuple[str, ...], fetch: bool, do_entail: bool) -> None:
                     verdict = agentic.entail(claim, src)
                     if verdict in ("supported", "contradicted", "unsupported"):
                         _budget.record(root, est, reset=reset)
-                    statuses.append(verdict)
-                    if _verify.is_fail(verdict):
-                        details.append(f"    {verdict}: [{tok}] — claim not backed by source")
-        note_status = _verify.worst(statuses)
-        rel = n.path.relative_to(root)
-        if _verify.is_fail(note_status):
-            failed += 1
-            click.echo(click.style(f"{rel}  ✗ {note_status}", fg="red"))
-            for d in details:
-                click.echo(d)
-        elif note_status in ("drifted", "unresolvable"):
-            click.echo(click.style(f"{rel}  ⚠ {note_status}", fg="yellow"))
-            for d in details:
-                click.echo(d)
-        else:
-            click.echo(f"{rel}  ✓ {note_status}")
+                    cites.append({"token": tok, "status": verdict,
+                                  "detail": "claim not backed by source" if _verify.is_fail(verdict) else "",
+                                  "line": line_of.get(tok, 1)})
+        note_status = _verify.worst([c["status"] for c in cites])
+        report.append({"path": str(n.path.relative_to(root)), "status": note_status,
+                       "citations": cites})
+
+    failed = sum(1 for r in report if _verify.is_fail(r["status"]))
+    summary = {"notes": len(report), "failed": failed,
+               "warned": sum(1 for r in report if r["status"] in ("drifted", "unresolvable"))}
+
+    if fmt == "json":
+        click.echo(json.dumps({"summary": summary, "notes": report}, indent=2))
+    elif fmt == "sarif":
+        click.echo(json.dumps(_verify.to_sarif(report), indent=2))
+    else:
+        for r in report:
+            s = r["status"]
+            if _verify.is_fail(s):
+                click.echo(click.style(f"{r['path']}  ✗ {s}", fg="red"))
+            elif s in ("drifted", "unresolvable"):
+                click.echo(click.style(f"{r['path']}  ⚠ {s}", fg="yellow"))
+            else:
+                click.echo(f"{r['path']}  ✓ {s}")
+            for c in r["citations"]:
+                if _verify.is_fail(c["status"]) or c["status"] in ("drifted", "unresolvable"):
+                    click.echo(f"    {c['status']}: [{c['token']}]" + (f" — {c['detail']}" if c["detail"] else ""))
+        if failed:
+            _err(f"\n{failed} note(s) with unresolved citations")
     run_hook(root, "verify", args=str(failed))
     if failed:
-        _err(f"\n{failed} note(s) with unresolved citations")
         sys.exit(1)
-    _ok(f"\nall {len(notes)} note(s) verified" + (" (Layer 1+2)" if do_entail else " (Layer 1)"))
+    if fmt == "text":
+        _ok(f"\nall {len(report)} note(s) verified" + (" (Layer 1+2)" if do_entail else " (Layer 1)"))
+
+
+def _changed_files(root: Path, base: str) -> set[str]:
+    """Absolute paths of files changed vs `base` (committed diff + working tree)."""
+    out: set[str] = set()
+    try:
+        import subprocess
+        for args in (["diff", "--name-only", base], ["diff", "--name-only"], ["ls-files", "--others", "--exclude-standard"]):
+            r = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True)
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    if line.strip():
+                        out.add(str((root / line.strip()).resolve()))
+    except (OSError, ImportError):
+        pass
+    return out
+
+
+def _citation_line_map(body: str, cite_re) -> dict[str, int]:
+    """First 1-based line number each citation token appears on."""
+    m: dict[str, int] = {}
+    for i, line in enumerate(body.splitlines(), start=1):
+        for mt in cite_re.finditer(line):
+            tok = mt.group(0)[1:-1]
+            m.setdefault(tok, i)
+    return m
 
 
 def _resolve_ranker(root: Path, requested: str) -> tuple[str, str]:

@@ -163,6 +163,48 @@ def lines_with_citations(text: str, cite_re) -> list[tuple[str, list[str]]]:
     return out
 
 
+def to_sarif(report: list) -> dict:
+    """Render a verify report as SARIF 2.1.0 so GitHub code-scanning (and other
+    SARIF consumers) can show findings inline on the memory files. One result
+    per FAIL/WARN citation, located at the note + line it appears on."""
+    rules = {
+        "missing": ("error", "Cited source is missing"),
+        "contradicted": ("error", "Source contradicts the claim"),
+        "unsupported": ("error", "Source does not support the claim"),
+        "drifted": ("warning", "Cited source changed since it was cited"),
+        "unresolvable": ("note", "Citation could not be resolved here (other repo?)"),
+    }
+    results = []
+    for note in report:
+        for c in note.get("citations", []):
+            st = c["status"]
+            if st not in rules:
+                continue
+            level, _ = rules[st]
+            results.append({
+                "ruleId": f"lattice/{st}",
+                "level": level,
+                "message": {"text": f"[{c['token']}]: {st}" + (f" — {c['detail']}" if c.get("detail") else "")},
+                "locations": [{"physicalLocation": {
+                    "artifactLocation": {"uri": note["path"]},
+                    "region": {"startLine": c.get("line", 1)},
+                }}],
+            })
+    return {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {"driver": {
+                "name": "lattice",
+                "informationUri": "https://github.com/midhun1998/memlattice",
+                "rules": [{"id": f"lattice/{k}", "shortDescription": {"text": v[1]}}
+                          for k, v in rules.items()],
+            }},
+            "results": results,
+        }],
+    }
+
+
 def source_text(token: str, root: Path) -> str | None:
     """Best-effort source text for a citation, for entailment. Only resolves
     cheap local sources (file:); returns None when there's nothing to read."""
