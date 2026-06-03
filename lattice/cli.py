@@ -276,6 +276,52 @@ def doctor(days: int, strict: bool) -> None:
     run_hook(root, "doctor", args="ok")
 
 
+@main.command()
+@click.argument("paths", nargs=-1, type=click.Path())
+@click.option("--fetch", is_flag=True, help="Resolve doc:/url: citations over the network (off by default).")
+def verify(paths: tuple[str, ...], fetch: bool) -> None:
+    """Check that cited sources still exist (Layer 1: existence/freshness).
+
+    Resolves each citation: file:/commit: are checked on disk/in-repo; conv:/chat:
+    are human-attested; doc:/url:/pr: are unfetched unless --fetch. Exits non-zero
+    if any note has a `missing` citation. (LLM entailment is opt-in; see --entail.)
+    """
+    from . import verify as _verify
+    root = find_vault(Path.cwd()) or _abort_no_vault()
+    cite_re = citation_regex(root)
+    notes = load_vault(root)
+    failed = 0
+    for n in notes:
+        tokens = _verify.citations_in(n.body, cite_re)
+        if not tokens:
+            continue
+        statuses = []
+        details = []
+        for tok in tokens:
+            st = _verify.resolve_citation(tok, root=root, fetch=fetch)
+            statuses.append(st.status)
+            if st.status in ("missing",) or (st.status == "drifted"):
+                details.append(f"    {st.status}: [{tok}]" + (f" — {st.detail}" if st.detail else ""))
+        note_status = _verify.worst(statuses)
+        rel = n.path.relative_to(root)
+        if _verify.is_fail(note_status):
+            failed += 1
+            click.echo(click.style(f"{rel}  ✗ {note_status}", fg="red"))
+            for d in details:
+                click.echo(d)
+        elif note_status == "drifted":
+            click.echo(click.style(f"{rel}  ⚠ drifted", fg="yellow"))
+            for d in details:
+                click.echo(d)
+        else:
+            click.echo(f"{rel}  ✓ {note_status}")
+    run_hook(root, "verify", args=str(failed))
+    if failed:
+        _err(f"\n{failed} note(s) with unresolved citations")
+        sys.exit(1)
+    _ok(f"\nall {len(notes)} note(s) verified (Layer 1)")
+
+
 def _resolve_ranker(root: Path, requested: str) -> tuple[str, str]:
     """Decide which ranker actually runs and why.
 
