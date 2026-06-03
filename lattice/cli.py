@@ -300,7 +300,7 @@ def verify(paths: tuple[str, ...], fetch: bool) -> None:
         for tok in tokens:
             st = _verify.resolve_citation(tok, root=root, fetch=fetch)
             statuses.append(st.status)
-            if st.status in ("missing",) or (st.status == "drifted"):
+            if _verify.is_fail(st.status) or st.status in ("drifted", "unresolvable"):
                 details.append(f"    {st.status}: [{tok}]" + (f" — {st.detail}" if st.detail else ""))
         note_status = _verify.worst(statuses)
         rel = n.path.relative_to(root)
@@ -309,8 +309,8 @@ def verify(paths: tuple[str, ...], fetch: bool) -> None:
             click.echo(click.style(f"{rel}  ✗ {note_status}", fg="red"))
             for d in details:
                 click.echo(d)
-        elif note_status == "drifted":
-            click.echo(click.style(f"{rel}  ⚠ drifted", fg="yellow"))
+        elif note_status in ("drifted", "unresolvable"):
+            click.echo(click.style(f"{rel}  ⚠ {note_status}", fg="yellow"))
             for d in details:
                 click.echo(d)
         else:

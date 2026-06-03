@@ -25,9 +25,20 @@ def test_file_citation_present(tmp_path: Path):
     assert st.status == "present"
 
 
-def test_file_citation_missing(tmp_path: Path):
+def test_file_citation_missing_when_parent_exists(tmp_path: Path):
+    """Parent dir exists but the file is gone = genuinely missing (FAIL)."""
+    (tmp_path / "src").mkdir()
     st = verify.resolve_citation("file:src/nope.py", root=tmp_path)
     assert st.status == "missing"
+
+
+def test_file_citation_unresolvable_when_parent_absent(tmp_path: Path):
+    """Path into a dir that doesn't exist here = unresolvable (likely another
+    repo not checked out), a WARN, not a FAIL. Regression from dogfooding:
+    cross-repo citations were wrongly failing as 'missing'."""
+    st = verify.resolve_citation("file:chatbots/other-repo/src/x.py", root=tmp_path)
+    assert st.status == "unresolvable"
+    assert not verify.is_fail("unresolvable")
 
 
 def test_file_citation_with_line_present(tmp_path: Path):

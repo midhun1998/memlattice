@@ -24,13 +24,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Ordered worst -> best for reduction. Lower index = worse. The "acceptable"
-# statuses (unfetched/human-attested/fetched/present/supported) collapse to
-# 'present' on reduction so a note's status reflects its worst *concern* —
-# a human-attested citation alongside present ones is not a downgrade.
-_SEVERITY = ["missing", "contradicted", "unsupported", "drifted",
+# statuses (unresolvable/unfetched/human-attested/fetched/present/supported)
+# collapse to 'present' on reduction unless a worse concern is present.
+# `unresolvable` (path into a tree not checked out here) is a WARN, not a FAIL —
+# distinct from `missing` (the file is gone from a tree we CAN see).
+_SEVERITY = ["missing", "contradicted", "unsupported", "drifted", "unresolvable",
              "unfetched", "human-attested", "fetched", "present", "supported"]
 _FAIL = {"missing", "contradicted", "unsupported"}
-_WARN = {"drifted"}
+_WARN = {"drifted", "unresolvable"}
 
 # schemes we can check on disk without network
 _HUMAN = {"conv", "chat"}
@@ -89,6 +90,13 @@ def resolve_citation(token: str, root: Path, fetch: bool = False) -> CiteStatus:
         expanded = Path(relpath).expanduser()
         target = expanded if expanded.is_absolute() else (root / expanded)
         if not target.is_file():
+            # Distinguish "gone from a tree we can see" (missing/FAIL) from
+            # "into a tree not checked out here" (unresolvable/WARN). If the
+            # parent directory doesn't exist, we almost certainly can't see the
+            # repo this cites — don't fail the build for that.
+            if not target.parent.is_dir():
+                return CiteStatus(token, scheme, "unresolvable",
+                                  f"path not present here (other repo?): {relpath}")
             return CiteStatus(token, scheme, "missing", f"no such file: {target}")
         if line is not None:
             try:
