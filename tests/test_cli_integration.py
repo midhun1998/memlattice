@@ -85,3 +85,22 @@ def test_lint_flags_uncited_when_scheme_not_configured(tmp_path: Path):
         assert "un-cited" in res.output, res.output
     finally:
         os.chdir(cwd)
+
+
+def test_init_gitignores_inbox_and_cache(tmp_path):
+    """init must gitignore the review-scratch _inbox/ and .lattice/cache/ so
+    uncited drafts + local ledgers never get committed to a user's repo."""
+    _init(tmp_path)
+    gi = (tmp_path / ".gitignore").read_text()
+    assert ".lattice/cache/" in gi
+    assert "_inbox/" in gi
+
+
+def test_init_gitignore_preserves_existing(tmp_path):
+    """Pre-existing .gitignore content is kept; lattice lines are appended once."""
+    (tmp_path / ".gitignore").write_text("node_modules/\n")
+    _init(tmp_path)
+    gi = (tmp_path / ".gitignore").read_text()
+    assert "node_modules/" in gi and "_inbox/" in gi
+    _init(tmp_path)  # idempotent — no duplicate lines
+    assert gi.count("_inbox/") == 1

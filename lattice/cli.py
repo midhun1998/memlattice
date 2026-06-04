@@ -62,13 +62,16 @@ def init(path: Path) -> None:
         else:
             target.write_text(content)
             created.append(rel)
+    # Ignore machine state + review scratch: the local caches/ledgers under
+    # .lattice/cache/ and the uncited `_inbox/` drafts (never belong in a repo).
     gi = path / ".gitignore"
-    gi_line = ".lattice/cache/\n"
-    if gi.exists():
-        if gi_line.strip() not in gi.read_text():
-            gi.write_text(gi.read_text().rstrip() + "\n" + gi_line)
-    else:
-        gi.write_text(gi_line)
+    want = [".lattice/cache/", "_inbox/"]
+    existing = gi.read_text() if gi.exists() else ""
+    have = set(existing.splitlines())
+    missing = [ln for ln in want if ln not in have]
+    if missing:
+        body = (existing.rstrip() + "\n") if existing.strip() else ""
+        gi.write_text(body + "\n".join(missing) + "\n")
     _ok(f"vault initialised at {path}")
     if created:
         click.echo("  created: " + ", ".join(created))
