@@ -19,7 +19,10 @@ TOOL_NAMES = ["lattice_context", "lattice_search", "lattice_lint", "lattice_veri
 
 
 def _root(vault: str | None) -> Path:
-    start = Path(vault) if vault else Path.cwd()
+    """Resolve the vault: explicit arg > $LATTICE_VAULT > cwd. The env var lets a
+    globally-wired MCP server pin a vault regardless of its launch cwd."""
+    import os
+    start = Path(vault) if vault else Path(os.environ.get("LATTICE_VAULT") or Path.cwd())
     root = find_vault(start)
     if root is None:
         raise ValueError(f"no lattice vault found from {start}")

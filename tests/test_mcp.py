@@ -17,6 +17,29 @@ def _vault(tmp_path: Path) -> None:
     CliRunner().invoke(main, ["init", str(tmp_path)])
 
 
+# ---------- vault resolution: explicit arg > LATTICE_VAULT env > cwd ----------
+
+def test_tool_uses_lattice_vault_env_when_no_arg(tmp_path: Path, monkeypatch):
+    """A globally-wired MCP server has an unpredictable cwd; LATTICE_VAULT pins
+    the vault so tools resolve it regardless of where the server launched."""
+    _vault(tmp_path)
+    (tmp_path / "flows" / "x.md").write_text(
+        "---\ntype: flow\nlast_verified: 2026-06-03\nrelated: []\n---\n\n"
+        "# X\n\n## Open questions\n- none\n\n## Referenced by\n_none_\n"
+    )
+    monkeypatch.setenv("LATTICE_VAULT", str(tmp_path))
+    monkeypatch.chdir(Path(__file__).parent)  # cwd is NOT the vault
+    out = tools.lint(None)  # no explicit vault arg
+    assert "x.md" in out  # resolved via env, not cwd
+
+
+def test_explicit_vault_arg_overrides_env(tmp_path: Path, monkeypatch):
+    _vault(tmp_path)
+    monkeypatch.setenv("LATTICE_VAULT", "/nonexistent/elsewhere")
+    out = tools.lint(str(tmp_path))  # explicit arg wins over the bad env
+    assert isinstance(out, str)
+
+
 # ---------- tool functions call the core in-process (no subprocess, no SDK) ----------
 
 def test_tool_context_returns_manifest(tmp_path: Path):

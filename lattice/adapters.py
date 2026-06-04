@@ -118,7 +118,10 @@ class GitAdapter:
     def __init__(self, source: str, opts: dict[str, Any], vault: Path):
         self.source = source
         self.vault = vault
-        self.repo = (vault / str(opts.get("path", "."))).resolve()
+        # Resolve ~ and absolute paths as-is; only truly relative paths join the
+        # vault. A repo cited via ~ or an absolute path lives elsewhere on disk.
+        _p = Path(str(opts.get("path", "."))).expanduser()
+        self.repo = (_p if _p.is_absolute() else (vault / _p)).resolve()
         self.branch = opts.get("branch") or None
         self.paths = [str(p) for p in (opts.get("paths") or []) if isinstance(p, str)]
         # Per-run watermark override (set by the orchestrator from --since);

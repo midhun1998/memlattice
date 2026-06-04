@@ -73,6 +73,28 @@ def _watermark_path(root: Path, source: str) -> Path:
 SOURCES_GIT = '[sources.repo]\nadapter = "git"\npath = "."\n'
 
 
+def test_git_adapter_resolves_absolute_and_tilde_paths(tmp_path, monkeypatch):
+    """A [sources] path may be absolute or ~-relative (a repo elsewhere), not
+    just relative-to-vault. Regression: ~ was joined under the vault literally,
+    so the adapter silently found 0 commits. Discovery must resolve it."""
+    from lattice.adapters import GitAdapter
+    # a real git repo at an absolute path, separate from the vault
+    repo = tmp_path / "elsewhere-repo"
+    repo.mkdir()
+    _git_repo(repo)
+    _commit(repo, "a.txt", "x", "first commit in the other repo")
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    # absolute path
+    a = GitAdapter("r", {"adapter": "git", "path": str(repo)}, vault)
+    assert a.discover(), "absolute path should resolve to the repo's commits"
+    # ~-relative path: point at repo via a fake HOME so ~ expands to it
+    monkeypatch.setenv("HOME", str(tmp_path))
+    rel = repo.relative_to(tmp_path)  # e.g. "elsewhere-repo"
+    t = GitAdapter("r", {"adapter": "git", "path": f"~/{rel}"}, vault)
+    assert t.discover(), "~-relative path should expand and resolve"
+
+
 # ---------- FAILING-FIRST happy path ----------
 
 def test_refresh_git_adapter_drafts_uncited_stub_to_inbox(tmp_path: Path):
