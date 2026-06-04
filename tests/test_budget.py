@@ -150,11 +150,12 @@ def test_ledger_resets_across_days(tmp_path: Path, monkeypatch):
     from lattice import budget
 
     _init(tmp_path)
-    monkeypatch.setattr(budget, "_today", lambda: "2026-05-01")
+    # _today now derives from _now (period keys do too), so patch _now
+    monkeypatch.setattr(budget, "_now", lambda: "2026-05-01T09:00:00")
     budget.record(tmp_path, 0.50)
     assert budget.spent_today(tmp_path) == 0.50
     # next day: fresh ledger window
-    monkeypatch.setattr(budget, "_today", lambda: "2026-05-02")
+    monkeypatch.setattr(budget, "_now", lambda: "2026-05-02T09:00:00")
     assert budget.spent_today(tmp_path) == 0.0
 
 

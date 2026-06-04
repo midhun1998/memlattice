@@ -1,6 +1,6 @@
 [project]
 name = "memlattice"
-version = "0.1.0"
+version = "0.2.0"
 description = "Your AI agent's long-term memory, in plain markdown. Verified by construction."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,9 +37,15 @@ agentic = ["anthropic>=0.40"]
 # so it is STRICTLY an extra — never a core dependency. Core runs fine without it
 # (silent BM25 fallback). Install with `pip install "memlattice[embeddings]"`.
 embeddings = ["sentence-transformers>=2.2"]
+# Optional MCP server so agents (Claude Code, Cursor, ...) query lattice
+# natively instead of being told to run the CLI. The SDK is an extra — core
+# imports fine without it; only `lattice-mcp` needs it. Install with
+# `pip install "memlattice[mcp]"` then `lattice install claude-code`.
+mcp = ["mcp>=1.2"]
 
 [project.scripts]
 lattice = "lattice.cli:main"
+lattice-mcp = "lattice.mcp.server:main"
 
 # The built-in `git` adapter registers via the SAME mechanism third parties
 # use: the "lattice.adapters" entry-point group. Core does not depend on this

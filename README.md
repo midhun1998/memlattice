@@ -5,7 +5,7 @@
 <h1 align="center">lattice</h1>
 
 <p align="center">
-  <strong>Your AI agent's long-term memory, in plain markdown. Verified by construction.</strong>
+  <strong>The verification gate for AI-agent memory. Plain markdown, cited by construction, verifiable on demand.</strong>
 </p>
 
 <p align="center">
@@ -18,20 +18,38 @@
 
 ---
 
-Every Claude Code / Cursor / Aider user ends up writing the same thing: a
-sprawling `CLAUDE.md` / `AGENTS.md` / `.cursorrules` that grows into a
-2,000-line wiki the model never fully reads — riddled with speculation it later
-cites as fact. **lattice** is a tiny CLI + markdown convention that makes that
-memory **structured, verified, multi-tool, and cheap on tokens** — without a
-database, a server, or vendor lock-in.
+Your agent already remembers — Claude Code, Cursor, claude-mem, mem0 all
+capture context now. The problem isn't *remembering*; it's that agent memory
+fills with **speculation the model later cites as fact**, goes stale silently,
+and nobody can prove where a "fact" came from. **lattice** is the gate that
+keeps memory honest: every factual claim must carry a **citation**, uncited
+claims are blocked from a note's body (`lattice lint`), and `lattice verify`
+checks the cited source still **exists and backs the claim** — runnable in CI.
+A tiny CLI + markdown convention. No database, no server, no vendor lock-in.
 
 ```bash
 pipx install memlattice
 lattice init ~/knowledge
 ```
 
-> **It's a `pre-commit` for agent memory** — convention + a small CLI, not a
-> service. It stays out of your way until your facts drift, then yells.
+> **It's `eslint` / a `pre-commit` for agent memory** — convention + a small
+> CLI, not a service. It stays out of your way until your facts drift, then yells.
+
+### How it fits — one engine, three faces
+
+```
+   you ──── CLI ────────────▶ ┌──────────────────────────────┐
+                              │   lattice core                │
+   agent ── MCP server ─────▶ │   vault · lint · context ·    │
+   (Claude Code/Cursor)       │   verify · citations · budget │
+                              │                                │
+   CI ───── lattice verify ─▶ │   plain-markdown vault on disk │
+           --changed --ci     └──────────────────────────────┘
+```
+
+The MCP server and CI gate call the **same core in-process** as the CLI — so
+the agent queries lattice natively (`lattice install claude-code`) and your
+pipeline can fail a PR on an uncited or unsupported claim.
 
 ## Why lattice
 
@@ -106,12 +124,14 @@ Then tell your agent, once:
 | `lattice used <slug> [<slug>...] [--bad]` | Record a local-only outcome so `context` ranks used notes slightly higher (`--bad` penalizes) |
 | `lattice cache [--build]` | Pre-render context manifests for offline use |
 | `lattice digest <history-file>` | Compress an unbounded session-history file |
+| `lattice verify [--entail] [--fetch] [--changed --base REF] [--format text\|json\|sarif]` | Check cited sources back their claims. L1: file:/commit: existence + freshness; L2 (`--entail`): LLM judges source→claim support (budget-gated). `--changed`+`--format` make it a CI gate that fails on `missing`/`contradicted`/`unsupported` |
 | `lattice doctor [--days N] [--strict]` | Read-only vault health summary (counts, stale, orphans, budgets, lint); exits non-zero on hard problems |
+| `lattice install claude-code [--yes]` | Wire the MCP server into a project `.mcp.json` so the agent queries lattice natively (`print` just emits the snippet) |
 | `lattice refresh [-s NAME] [--since REF] [--limit N] [--no-distill] [--dry-run] [--no-cache]` | Run configured source adapters and draft **uncited** candidate stubs into `_inbox/` for review (opt-in, default-off) |
 | `lattice inbox` | List pending **uncited** drafts in the review-gate inbox dir (read-only; empty inbox is not an error) |
 | `lattice promote <draft> [--type TYPE] [--slug SLUG] [--keep] [--force]` | Move an inbox draft into a real category dir as a templated note that **still** must earn citations to pass `lint` |
 | `lattice schedule [--cron\|--launchd] [--at HH:MM] [--every Nh]` | Print a ready-to-paste cron/launchd snippet for periodic `refresh`/`digest` — lattice installs no daemon; you install it yourself |
-| `lattice budget` | Show today's local spend vs the `[budget] max_usd_per_day` ceiling (default `0` = never spend) |
+| `lattice budget` | Show local spend vs the `[budget] max_usd_per_day` ceiling for the current `[budget] reset` window (hourly/daily/weekly/monthly; default daily, `0` = never spend) |
 
 ## Spending & scheduling — safe by default
 
@@ -270,12 +290,14 @@ promoted to flows/add-checkout-settlement-step.md; add citations then run `latti
 
 ## Status
 
-**v0.1.** `init`, `new`, `link`, `lint`, `stale`, `context`, `cache`,
-`digest`, `doctor`, `refresh` (pluggable source adapters + built-in `git`
-adapter), and the review-gated `inbox` / `promote` workflow all work, with a
-test suite and CI across Python 3.10–3.12. Config-driven citation schemes and
-note types. Roadmap (embedding backend, agentic `verify`) is in the
-[design doc](docs/design.md#11-roadmap).
+**v0.2 — the verification gate.** All of v0.1 (`init`, `new`, `link`, `lint`,
+`stale`, `context`, `cache`, `digest`, `doctor`, `refresh` + the review-gated
+`inbox`/`promote` workflow) plus the trust layer: **`verify`** (Layer 1
+existence/freshness; Layer 2 LLM source-checking, budget-gated), a **CI audit
+gate** (`--changed`, `--format json|sarif`), an **MCP server** (`lattice
+install claude-code`) so agents query lattice natively, and **budget reset
+periods** (hourly/daily/weekly/monthly). 144 tests, CI across Python 3.10–3.12,
+optional local embeddings. Config-driven citation schemes and note types.
 
 ## License
 

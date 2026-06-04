@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 import sys
 from pathlib import Path
@@ -276,6 +277,175 @@ def doctor(days: int, strict: bool) -> None:
     run_hook(root, "doctor", args="ok")
 
 
+@main.command()
+@click.argument("paths", nargs=-1, type=click.Path())
+@click.option("--fetch", is_flag=True, help="Resolve doc:/url: citations over the network (off by default).")
+@click.option("--entail", "do_entail", is_flag=True, help="Layer 2: LLM-judge whether each present source SUPPORTS the claim (budget-gated; off at $0).")
+@click.option("--changed", is_flag=True, help="Only scan memory files changed vs --base (for CI on a PR).")
+@click.option("--base", default="HEAD", help="Git base ref for --changed (default HEAD).")
+@click.option("--format", "fmt", type=click.Choice(["text", "json", "sarif"]), default="text", help="Output format. json/sarif emit a machine-readable audit artifact for CI.")
+def verify(paths: tuple[str, ...], fetch: bool, do_entail: bool, changed: bool, base: str, fmt: str) -> None:
+    """Check that cited sources back their claims (the verification gate).
+
+    Layer 1 (always): file:/commit: checked on disk/in-repo; conv:/chat: are
+    human-attested; doc:/url:/pr: unfetched unless --fetch. Layer 2 (--entail):
+    an LLM judges whether each present source SUPPORTS the claim — gated by the
+    `[budget]` breaker, so it never spends at the default $0 ceiling.
+
+    CI: `--changed --base <ref>` scopes to changed files; `--format json|sarif`
+    emits an audit artifact. Exits non-zero on missing/contradicted/unsupported.
+    """
+    from . import verify as _verify
+    root = find_vault(Path.cwd()) or _abort_no_vault()
+    cite_re = citation_regex(root)
+    notes = load_vault(root)
+    if changed:
+        changed_set = _changed_files(root, base)
+        notes = [n for n in notes if str(n.path.resolve()) in changed_set]
+
+    from . import budget as _budget
+    from .config import budget_config, budget_reset
+    bcfg = budget_config(root)
+    reset = budget_reset(root)
+    ceiling = bcfg["max_usd_per_day"]
+    est = bcfg["estimated_usd_per_digest"]
+
+    def entail_ok() -> bool:
+        return do_entail and _budget.check(root, est_cost=est, max_usd=ceiling, reset=reset).allow
+
+    report = []  # structured per-note result, rendered per --format
+    for n in notes:
+        tokens = _verify.citations_in(n.body, cite_re)
+        if not tokens:
+            continue
+        cites = []  # {token, status, detail, line}
+        resolved = {}
+        line_of = _citation_line_map(n.body, cite_re)
+        for tok in tokens:
+            st = _verify.resolve_citation(tok, root=root, fetch=fetch)
+            resolved[tok] = st
+            cites.append({"token": tok, "status": st.status, "detail": st.detail,
+                          "line": line_of.get(tok, 1)})
+        if do_entail:
+            from . import agentic
+            for claim, toks in _verify.lines_with_citations(n.body, cite_re):
+                for tok in toks:
+                    st = resolved.get(tok)
+                    if not st or st.status not in ("present", "fetched"):
+                        continue
+                    src = _verify.source_text(tok, root)
+                    if src is None or not entail_ok():
+                        continue
+                    verdict = agentic.entail(claim, src)
+                    if verdict in ("supported", "contradicted", "unsupported"):
+                        _budget.record(root, est, reset=reset)
+                    cites.append({"token": tok, "status": verdict,
+                                  "detail": "claim not backed by source" if _verify.is_fail(verdict) else "",
+                                  "line": line_of.get(tok, 1)})
+        note_status = _verify.worst([c["status"] for c in cites])
+        report.append({"path": str(n.path.relative_to(root)), "status": note_status,
+                       "citations": cites})
+
+    failed = sum(1 for r in report if _verify.is_fail(r["status"]))
+    summary = {"notes": len(report), "failed": failed,
+               "warned": sum(1 for r in report if r["status"] in ("drifted", "unresolvable"))}
+
+    if fmt == "json":
+        click.echo(json.dumps({"summary": summary, "notes": report}, indent=2))
+    elif fmt == "sarif":
+        click.echo(json.dumps(_verify.to_sarif(report), indent=2))
+    else:
+        for r in report:
+            s = r["status"]
+            if _verify.is_fail(s):
+                click.echo(click.style(f"{r['path']}  ✗ {s}", fg="red"))
+            elif s in ("drifted", "unresolvable"):
+                click.echo(click.style(f"{r['path']}  ⚠ {s}", fg="yellow"))
+            else:
+                click.echo(f"{r['path']}  ✓ {s}")
+            for c in r["citations"]:
+                if _verify.is_fail(c["status"]) or c["status"] in ("drifted", "unresolvable"):
+                    click.echo(f"    {c['status']}: [{c['token']}]" + (f" — {c['detail']}" if c["detail"] else ""))
+        if failed:
+            _err(f"\n{failed} note(s) with unresolved citations")
+    run_hook(root, "verify", args=str(failed))
+    if failed:
+        sys.exit(1)
+    if fmt == "text":
+        _ok(f"\nall {len(report)} note(s) verified" + (" (Layer 1+2)" if do_entail else " (Layer 1)"))
+
+
+def _changed_files(root: Path, base: str) -> set[str]:
+    """Absolute paths of files changed vs `base` (committed diff + working tree)."""
+    out: set[str] = set()
+    try:
+        import subprocess
+        for args in (["diff", "--name-only", base], ["diff", "--name-only"], ["ls-files", "--others", "--exclude-standard"]):
+            r = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True)
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    if line.strip():
+                        out.add(str((root / line.strip()).resolve()))
+    except (OSError, ImportError):
+        pass
+    return out
+
+
+def _citation_line_map(body: str, cite_re) -> dict[str, int]:
+    """First 1-based line number each citation token appears on."""
+    m: dict[str, int] = {}
+    for i, line in enumerate(body.splitlines(), start=1):
+        for mt in cite_re.finditer(line):
+            tok = mt.group(0)[1:-1]
+            m.setdefault(tok, i)
+    return m
+
+
+@main.command()
+@click.argument("target", type=click.Choice(["claude-code", "print"]))
+@click.option("--yes", is_flag=True, help="Write without prompting.")
+def install(target: str, yes: bool) -> None:
+    """Wire lattice's MCP server into an agent so it's used automatically.
+
+    `claude-code` writes a project `.mcp.json` advertising the `lattice` server
+    (run via `lattice-mcp`), so the agent can call lattice_context/lint/verify
+    natively — no "remember to run the CLI". `print` just emits the snippet.
+    Idempotent; needs the [mcp] extra installed to actually run the server.
+    """
+    root = find_vault(Path.cwd()) or _abort_no_vault()
+    server_entry = {
+        "lattice": {
+            "command": "lattice-mcp",
+            "args": [],
+            "env": {},
+        }
+    }
+    snippet = {"mcpServers": server_entry}
+    if target == "print":
+        click.echo(json.dumps(snippet, indent=2))
+        click.echo("\n# add the above to .mcp.json; install the server with: pip install \"memlattice[mcp]\"", err=True)
+        return
+    # claude-code: merge into (or create) .mcp.json at the vault root
+    mcp_path = root / ".mcp.json"
+    existing = {}
+    if mcp_path.exists():
+        try:
+            existing = json.loads(mcp_path.read_text())
+        except json.JSONDecodeError:
+            existing = {}
+    servers = existing.setdefault("mcpServers", {})
+    if servers.get("lattice") == server_entry["lattice"]:
+        _ok(f".mcp.json already wired ({mcp_path.relative_to(root)})")
+        return
+    if not yes and mcp_path.exists():
+        click.confirm(f"merge a 'lattice' MCP server into {mcp_path.relative_to(root)}?", abort=True)
+    servers["lattice"] = server_entry["lattice"]
+    mcp_path.write_text(json.dumps(existing, indent=2) + "\n")
+    _ok(f"wired lattice MCP server into {mcp_path.relative_to(root)}")
+    click.echo("install the server runtime with: pip install \"memlattice[mcp]\", then restart your agent.")
+    run_hook(root, "install", args=target)
+
+
 def _resolve_ranker(root: Path, requested: str) -> tuple[str, str]:
     """Decide which ranker actually runs and why.
 
@@ -515,9 +685,10 @@ def digest(history_file: Path, keep_recent: int, write: bool, no_cache: bool, ma
     or `--force-spend` to enable the Claude path.
     """
     from . import budget as _budget
-    from .config import budget_config
+    from .config import budget_config, budget_reset
 
     root = find_vault(Path.cwd())
+    reset = budget_reset(root)
     archive_dir = (root / ".lattice/history/full") if root else (history_file.parent / ".lattice-history")
     archive_dir.mkdir(parents=True, exist_ok=True)
     text = history_file.read_text()
@@ -539,7 +710,7 @@ def digest(history_file: Path, keep_recent: int, write: bool, no_cache: bool, ma
     def _pre_spend() -> bool:
         if root is None:
             return False
-        decision = _budget.check(root, est_cost=est, max_usd_per_day=ceiling, force=force_spend)
+        decision = _budget.check(root, est_cost=est, max_usd=ceiling, reset=reset, force=force_spend)
         if not decision.allow:
             if not blocked_notice_shown["v"]:
                 click.echo(click.style(decision.reason, fg="yellow"), err=True)
@@ -552,7 +723,7 @@ def digest(history_file: Path, keep_recent: int, write: bool, no_cache: bool, ma
 
     def _record() -> None:
         if root is not None:
-            _budget.record(root, est)
+            _budget.record(root, est, reset=reset)
 
     pre = _pre_spend if root is not None else None
     post = _record if root is not None else None
@@ -656,20 +827,22 @@ def budget_status() -> None:
     API. With the default ceiling 0 this confirms the Claude path is gated off.
     """
     from . import budget as _budget
-    from .config import budget_config
+    from .config import budget_config, budget_reset
 
     root = find_vault(Path.cwd()) or _abort_no_vault()
     bcfg = budget_config(root)
     ceiling = bcfg["max_usd_per_day"]
-    spent = _budget.spent_today(root)
+    reset = budget_reset(root)
+    spent = _budget.spent_in_period(root, reset)
     est = bcfg["estimated_usd_per_digest"]
-    today = _budget._today()
+    label = {"hourly": "hour", "daily": "day", "weekly": "week", "monthly": "month"}.get(reset, reset)
+    bucket = _budget._period_key(reset)
     if ceiling <= 0:
-        click.echo(f"budget {today}: spent ${spent:.4f} — ceiling $0.00/day (never spend; Claude path OFF)")
+        click.echo(f"budget {bucket}: spent ${spent:.4f} — ceiling $0.00/{label} (never spend; Claude path OFF)")
         click.echo("raise [budget] max_usd_per_day to enable spending.")
     else:
         remaining = max(ceiling - spent, 0.0)
-        click.echo(f"budget {today}: spent ${spent:.4f} / ${ceiling:.2f}/day  (remaining ${remaining:.4f})")
+        click.echo(f"budget {bucket}: spent ${spent:.4f} / ${ceiling:.2f}/{label}  (remaining ${remaining:.4f})")
         click.echo(f"estimated cost per digest call: ${est:.4f}")
     run_hook(root, "budget", args=f"{spent:.4f}/{ceiling:.2f}")
 

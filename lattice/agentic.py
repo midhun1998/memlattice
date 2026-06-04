@@ -196,3 +196,64 @@ def agentic_distill(raw_text: str, vault: Path | None = None, use_cache: bool = 
         cache[h] = out
         _save_cache(vault, cache)
     return out
+
+
+ENTAIL_PROMPT = textwrap.dedent("""\
+    You are a strict fact-checker. Decide whether the SOURCE supports the CLAIM.
+    Answer with exactly ONE word, no punctuation, from:
+      SUPPORTED      - the source clearly backs the claim
+      CONTRADICTED   - the source states something incompatible with the claim
+      UNSUPPORTED    - the source neither backs nor contradicts the claim
+    Be conservative: if the source does not clearly back the claim, do NOT say
+    SUPPORTED.
+
+    CLAIM:
+    {claim}
+
+    SOURCE:
+    ---
+    {source}
+    ---
+""")
+
+_ENTAIL_MAP = {
+    "SUPPORTED": "supported",
+    "CONTRADICTED": "contradicted",
+    "UNSUPPORTED": "unsupported",
+}
+
+
+def _entail_call(claim: str, source: str, model: str | None = None) -> str | None:
+    """One LLM judge call. Returns the raw verdict word, or None on any failure.
+    Isolated so tests patch THIS (no network) and callers gate spend around it.
+    The construction/call here is the spend trigger — gate BEFORE calling."""
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        return None
+    client = _make_client(key)
+    if client is None:
+        return None
+    try:
+        msg = client.messages.create(
+            model=model or os.environ.get("LATTICE_VERIFY_MODEL", "claude-haiku-4-5-20251001"),
+            max_tokens=8,
+            messages=[{"role": "user", "content": ENTAIL_PROMPT.format(
+                claim=claim[:1000], source=source[:6000])}],
+        )
+        return "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
+    except Exception as e:  # network/auth/rate-limit
+        print(f"[lattice] entail call failed: {e}")
+        return None
+
+
+def entail(claim: str, source: str, model: str | None = None) -> str:
+    """Judge whether `source` supports `claim`. Returns one of:
+    supported | contradicted | unsupported | unverifiable.
+
+    `unverifiable` = couldn't get a verdict (no key, no SDK, API error, or an
+    unrecognized response) — NOT a failure, just 'can't tell'. Spend gating is
+    the CALLER's responsibility (only call this when the budget allows)."""
+    verdict = _entail_call(claim, source, model=model)
+    if verdict is None:
+        return "unverifiable"
+    return _ENTAIL_MAP.get(verdict.strip().upper().split()[0] if verdict.strip() else "", "unverifiable")
