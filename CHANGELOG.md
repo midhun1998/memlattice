@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- **`lattice stats`** — local usage + health summary. Reports command-usage
+  frequency, per-call `context` metrics (avg tokens served vs. avg vault size,
+  shown as a served-ratio so the comparison stays honest — no summed
+  "saved" delta that can exceed the vault), `lattice used` outcome signal, a
+  live vault snapshot (notes, tokens, citation coverage), and is explicit
+  about what it *can't* measure (whether the agent used the context, real
+  ROI). A best-effort invocation log (`.lattice/cache/usage.jsonl`, gitignored,
+  no telemetry) records one row per command; `context` rows also carry served
+  + vault sizes. Pure-local; a log-write failure never breaks the underlying
+  command.
+- **Fixes (from dogfooding):** git source-adapter and MCP vault resolution now
+  expand `~`/absolute paths; `lattice init` gitignores `_inbox/` drafts.
+
 ## v0.2.0 (2026-06-03) — the verification gate
 
 Repositions lattice as the trust/verification layer for agent memory.
