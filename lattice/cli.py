@@ -36,8 +36,22 @@ def _ok(msg: str) -> None:
 
 @click.group()
 @click.version_option(__version__)
-def main() -> None:
+@click.pass_context
+def main(ctx: click.Context) -> None:
     """lattice — AI agent long-term memory in plain markdown."""
+    # Best-effort local usage log: one row per real subcommand invocation.
+    # Never logs `stats` itself (avoids self-inflation) or when outside a vault.
+    sub = ctx.invoked_subcommand
+    # `stats` is excluded (avoid self-inflation); `context` self-logs with token
+    # detail in its own handler, so skip it here to avoid a double row.
+    if sub and sub not in ("stats", "context"):
+        try:
+            from . import usage
+            root = find_vault(Path.cwd())
+            if root is not None:
+                usage.record(root, sub)
+        except Exception:
+            pass
 
 
 @main.command()
@@ -609,6 +623,13 @@ def context(query: str, budget: int, out: Path | None, no_learn: bool, ranker: s
         _err(f"# ranker: {reason}")
     if out:
         out.write_text(text)
+    # record real token savings: vault total vs what context actually served
+    try:
+        from . import usage
+        vault_tokens = sum(n.token_estimate for n in load_vault(root))
+        usage.record(root, "context", tokens_served=used, tokens_vault=vault_tokens)
+    except Exception:
+        pass
     run_hook(root, "context", args=query, output_file=out)
 
 
@@ -848,6 +869,62 @@ def budget_status() -> None:
         click.echo(f"budget {bucket}: spent ${spent:.4f} / ${ceiling:.2f}/{label}  (remaining ${remaining:.4f})")
         click.echo(f"estimated cost per digest call: ${est:.4f}")
     run_hook(root, "budget", args=f"{spent:.4f}/{ceiling:.2f}")
+
+
+@main.command()
+def stats() -> None:
+    """Local usage + health summary — how much you're actually using lattice.
+
+    All local (reads .lattice/cache/, no telemetry). Reports command usage,
+    real token savings from `context`, outcome signal, a live vault health
+    snapshot, and citation coverage — and is explicit about what it can't
+    measure (whether the agent used the context, or real time saved).
+    """
+    from . import usage as _usage, outcomes as _outcomes, verify as _verify
+    root = find_vault(Path.cwd()) or _abort_no_vault()
+    s = _usage.summarize(root)
+    notes = load_vault(root)
+    cite_re = citation_regex(root)
+
+    click.echo(click.style("lattice stats", bold=True) + f"  —  {root}")
+
+    # --- usage ---
+    click.echo("\nUsage (local invocation log):")
+    if s["total"] == 0:
+        click.echo("  no usage recorded yet — run some commands, then re-check.")
+    else:
+        click.echo(f"  {s['total']} invocation(s)  ·  first {(s['first_seen'] or '')[:10]} → last {(s['last_seen'] or '')[:10]}")
+        for cmd, n in sorted(s["counts"].items(), key=lambda kv: -kv[1]):
+            click.echo(f"    {cmd:<10} {n}")
+
+    # --- the advantage metric: token savings ---
+    if s["context_calls"]:
+        served_avg = s["context_tokens_served_avg"]
+        vault_avg = s["context_tokens_vault_avg"]
+        pct = int(round(s["context_served_ratio"] * 100))
+        click.echo("\nContext (what was actually loaded vs. the vault):")
+        click.echo(f"  {s['context_calls']} context call(s)  ·  {s['context_tokens_served_total']:,} tokens served total")
+        click.echo(f"  per-call: ~{served_avg:,} served vs. ~{vault_avg:,}-token vault  →  ~{pct}% of the vault per call")
+
+    # --- outcome signal ---
+    orows = _outcomes.load(root) if hasattr(_outcomes, "load") else []
+    if orows:
+        good = sum(1 for r in orows if r.get("good"))
+        click.echo(f"\nOutcomes (`lattice used`): {len(orows)} recorded — {good} good, {len(orows)-good} bad")
+
+    # --- live vault snapshot + citation coverage ---
+    total_tokens = sum(n.token_estimate for n in notes)
+    per_note = [len(_verify.citations_in(n.body, cite_re)) for n in notes]
+    cited = sum(per_note)
+    uncited = sum(1 for c in per_note if c == 0)
+    click.echo(f"\nVault snapshot: {len(notes)} notes · ~{total_tokens:,} tokens · {cited} citations · {uncited} note(s) with no citation")
+
+    # --- honesty: what this CANNOT measure ---
+    click.echo(click.style("\nNot measured (can't, honestly):", dim=True))
+    click.echo("  - whether the agent actually USED the context it was served")
+    click.echo("  - real time/ROI saved (needs a counterfactual lattice can't see)")
+    click.echo("  - usage outside this machine (no telemetry, by design)")
+    run_hook(root, "stats", args=str(s["total"]))
 
 
 @main.command()

@@ -132,6 +132,7 @@ Then tell your agent, once:
 | `lattice promote <draft> [--type TYPE] [--slug SLUG] [--keep] [--force]` | Move an inbox draft into a real category dir as a templated note that **still** must earn citations to pass `lint` |
 | `lattice schedule [--cron\|--launchd] [--at HH:MM] [--every Nh]` | Print a ready-to-paste cron/launchd snippet for periodic `refresh`/`digest` — lattice installs no daemon; you install it yourself |
 | `lattice budget` | Show local spend vs the `[budget] max_usd_per_day` ceiling for the current `[budget] reset` window (hourly/daily/weekly/monthly; default daily, `0` = never spend) |
+| `lattice stats` | Local usage + health summary: command frequency, token savings from `context`, outcome signal, vault snapshot. Honest about what it can't measure; no telemetry |
 
 ## Spending & scheduling — safe by default
 
